@@ -1,2 +1,2 @@
-github.com/pborman/ansi v1.0.0 h1:OqjHMhvlSuCCV5JT07yqPuJPQzQl+WXsiZ14gZsqOrQ=
-github.com/pborman/ansi v1.0.0/go.mod h1:SgWzwMAx1X/Ez7i90VqF8LRiQtx52pWDiQP+x3iGnzw=
+github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
+github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
