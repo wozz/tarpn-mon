@@ -48,10 +48,15 @@ websocket.onmessage = (event) => {
         // Append the table to the output
         tncDataOutput.appendChild(table);
     } else {
-        output.textContent += event.data + '\n';
+        // Create a new element for the message
+        const messageElement = document.createElement('div');
+        messageElement.innerHTML = event.data
+
+        // Append the message to the output
+        output.appendChild(messageElement);
         output.scrollTop = output.scrollHeight; // Auto-scroll to bottom
     }
-};
+  };
 };
 
 websocket.onerror = (error) => {

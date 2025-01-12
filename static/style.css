@@ -23,3 +23,17 @@ th, td {
   padding: 8px;
   border: 1px solid #666;
 }
+
+.time {
+    color: #a0a0a0;
+}
+
+.T {
+    color: #dd7777; /* Light red for T */
+    font-weight: bold;
+}
+
+.R {
+    color: #7777dd; /* Light blue for R */
+    font-weight: bold;
+}

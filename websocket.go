@@ -26,6 +26,14 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	// Add the new client to the list of connected clients
 	clients[conn] = true
 
+	history := dataBuffer.getAll()
+	for _, message := range history {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+			log.Println(err)
+			return
+		}
+	}
+
 	for {
 		// Handle incoming messages from the client (if any)
 		_, _, err := conn.ReadMessage()
@@ -53,6 +61,7 @@ func setupRoutes() {
 var clients = make(map[*websocket.Conn]bool) // concurrent safe map of clients
 
 func broadcast(message string) {
+	dataBuffer.add(message)
 	for client := range clients {
 		err := client.WriteMessage(websocket.TextMessage, []byte(message))
 		if err != nil {

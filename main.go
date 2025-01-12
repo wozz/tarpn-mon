@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,15 +27,25 @@ const (
 
 var state = state_CONNECTING
 
+var dataBuffer = newCircularBuffer(bufferSize)
+
+var (
+	enableConsoleOutput = true
+	enableFileLogging   = false
+)
+
 func reader(conn net.Conn) {
 	start := time.Now()
 	r := bufio.NewReader(conn)
 
-	logFile, err := os.Create(fmt.Sprintf("log_%d.txt", time.Now().Unix()))
-	if err != nil {
-		panic(err)
+	var fileWriter *bufio.Writer
+	if enableFileLogging {
+		logFile, err := os.Create(fmt.Sprintf("log_%d.txt", time.Now().Unix()))
+		if err != nil {
+			panic(err)
+		}
+		fileWriter = bufio.NewWriter(logFile)
 	}
-	fileWriter := bufio.NewWriter(logFile)
 
 	for {
 		switch state {
@@ -75,10 +87,12 @@ func reader(conn net.Conn) {
 				fmt.Println(c)
 				panic(err)
 			}
-			// log monitor lines
-			_, err = fileWriter.WriteString(c)
-			if err != nil {
-				panic(err)
+			if enableFileLogging {
+				// log monitor lines
+				_, err = fileWriter.WriteString(c)
+				if err != nil {
+					panic(err)
+				}
 			}
 			c = strings.TrimSuffix(c, "\xfe")
 
@@ -96,8 +110,21 @@ func reader(conn net.Conn) {
 					broadcast("TNC_DATA:" + string(jsonData))
 				}
 			}
-			fmt.Println(c)
-			broadcast(c)
+			re := regexp.MustCompile(`(?s)^(\d{2}:\d{2}:\d{2})([RT]) (.*)`)
+			matches := re.FindStringSubmatch(c)
+			if len(matches) == 4 {
+				timestamp := matches[1]
+				prefix := matches[2]
+				message := matches[3]
+				// Construct the new message with colors
+				parsedMessage := fmt.Sprintf("<span class='time'>%s</span> <span class='%s'>%s %s</span>", timestamp, prefix, prefix, html.EscapeString(message))
+				broadcast(parsedMessage)
+			} else {
+				broadcast(c)
+			}
+			if enableConsoleOutput {
+				fmt.Println(c)
+			}
 		case state_ERR:
 			panic("unknown error")
 		default:
@@ -140,8 +167,8 @@ func main() {
 
 	// Start the HTTP server
 	go func() {
-		log.Println("Starting HTTP server on :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Println("Starting HTTP server on :8212")
+		if err := http.ListenAndServe(":8212", nil); err != nil {
 			log.Fatal("ListenAndServe: ", err)
 		}
 	}()
