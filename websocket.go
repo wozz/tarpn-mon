@@ -49,13 +49,14 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "static/index.html")
+	content, _ := static.ReadFile("static/index.html")
+	w.Write(content)
 }
 
 func setupRoutes() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/ws", websocketHandler)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
+	http.Handle("/static/", http.FileServer(http.FS(static)))
 }
 
 var clients = make(map[*websocket.Conn]bool) // concurrent safe map of clients
