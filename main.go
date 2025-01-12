@@ -139,7 +139,7 @@ func reader(conn net.Conn) {
 
 func main() {
 	ctx := context.Background()
-	conn, err := net.Dial("tcp", "bb8.lan:8011")
+	conn, err := net.Dial("tcp", "localhost:8011")
 	if err != nil {
 		log.Fatalf("could not connect: %v", err)
 	}
