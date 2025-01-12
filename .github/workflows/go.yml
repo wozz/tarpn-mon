@@ -21,8 +21,13 @@ jobs:
       with:
         go-version: '1.22.3'
 
-    - name: Build
-      run: go build -v ./...
-
     - name: Test
       run: go test -v ./...
+
+    - name: Build
+      run: GOOS=linux GOARCH=arm CGO_ENABLED=0 go build -o tarpn-mon.linux-arm32 -v .
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: tarpn-mon
+        path: tarpn-mon.linux-arm32
