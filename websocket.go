@@ -55,7 +55,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 func setupRoutes() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/ws", websocketHandler)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 }
 
 var clients = make(map[*websocket.Conn]bool) // concurrent safe map of clients
