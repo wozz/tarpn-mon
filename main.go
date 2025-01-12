@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"html"
 	"log"
@@ -27,6 +28,11 @@ const (
 	state_INIT
 	state_MON
 	state_ERR
+)
+
+var (
+	callsign string
+	hostname string
 )
 
 var state = state_CONNECTING
@@ -138,8 +144,11 @@ func reader(conn net.Conn) {
 }
 
 func main() {
+	flag.StringVar(&callsign, "call", "", "callsign to use as pw for telnet connection to node")
+	flag.StringVar(&hostname, "host", "localhost", "hostname to connect to (default: localhost)")
+	flag.Parse()
 	ctx := context.Background()
-	conn, err := net.Dial("tcp", "localhost:8011")
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:8011", hostname))
 	if err != nil {
 		log.Fatalf("could not connect: %v", err)
 	}
@@ -147,7 +156,7 @@ func main() {
 	go reader(conn)
 	time.Sleep(time.Second * 3)
 
-	conn.Write([]byte("wa2m\r"))
+	conn.Write([]byte(fmt.Sprintf("%s\r", callsign)))
 	time.Sleep(time.Second * 1)
 	conn.Write([]byte("p\r"))
 	// must send this string to get monitor mode
