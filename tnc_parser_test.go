@@ -85,6 +85,31 @@ func TestParseTNCData(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "More Valid Data",
+			line: `16:06:28R TNC>USB Port=1 <UI C>:
+=00:3.42=01:=02:04D4C607=03:00000004=04:00000002=06:000000B0=07:00000000=08:0000132C=09:00000000=0A:000013CE=0B:00000016=0C:3F97A532=0D:00082DDD=0E:000A7A1A=0F:0002FFDB=10:0003A09E=11:000007ED`,
+			want: &tncData{
+				FirmwareVersion:          "3.42",
+				KAUP8R:                   "",
+				UptimeMillis:             81053191,
+				BoardID:                  4,
+				SwitchPositions:          2,
+				ConfigMode:               176,
+				AX25ReceivedPackets:      0,
+				IL2PCorrectablePackets:   4908,
+				IL2PUncorrectablePackets: 0,
+				TransmitPackets:          5070,
+				PreambleWordCount:        22,
+				MainLoopCycleCount:       1066902834,
+				PTTOnTimeMillis:          536029,
+				DCDOnTimeMillis:          686618,
+				ReceivedDataBytes:        196571,
+				TransmitDataBytes:        237726,
+				FECBytesCorrected:        2029,
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -1,4 +1,5 @@
 const output = document.getElementById('output');
+const tncDataOutput = document.getElementById('tncData');
 const websocket = new WebSocket(`ws://${window.location.host}/ws`);
 
 websocket.onopen = () => {
@@ -17,33 +18,44 @@ websocket.onmessage = (event) => {
         // Create a table for TNC data
         const table = document.createElement('table');
 
-        // Function to add a row to the table
-        const addRow = (key, value) => {
-            const row = table.insertRow();
-            const cell1 = row.insertCell();
-            const cell2 = row.insertCell();
-            cell1.textContent = key;
-            cell2.textContent = value;
+        // Add two rows to the table initially
+        const headerRow = table.insertRow();
+        const valueRow = table.insertRow();
+
+        // Function to add key or value to their respective rows
+        const addData = (key, value) => {
+            const keyCell = headerRow.insertCell();
+            const valueCell = valueRow.insertCell();
+
+            keyCell.textContent = key;
+            valueCell.textContent = value;
         };
 
+        // Data keys and values extracted from jsonData
+        const dataKeysAndValues = [
+            ['Firmware Version', jsonData.firmwareVersion],
+            ['KAUP8R', jsonData.kaup8r],
+            ['Uptime (ms)', jsonData.uptimeMillis],
+            ['Board ID', jsonData.boardId],
+            ['Switch Positions', jsonData.switchPositions],
+            ['Config Mode', jsonData.configMode],
+            ['AX.25 Received Packets', jsonData.ax25ReceivedPackets],
+            ['IL2P Correctable Packets', jsonData.il2pCorrectablePackets],
+            ['IL2P Uncorrectable Packets', jsonData.il2pUncorrectablePackets],
+            ['Transmit Packets', jsonData.transmitPackets],
+            ['Preamble Word Count', jsonData.preambleWordCount],
+            ['Main Loop Cycle Count', jsonData.mainLoopCycleCount],
+            ['PTT On Time (ms)', jsonData.pttOnTimeMillis],
+            ['DCD On Time (ms)', jsonData.dcdOnTimeMillis],
+            ['Received Data Bytes', jsonData.receivedDataBytes],
+            ['Transmit Data Bytes', jsonData.transmitDataBytes],
+            ['FEC Bytes Corrected', jsonData.fecBytesCorrected]
+        ];
+
         // Add data to the table
-        addRow('Firmware Version', jsonData.firmwareVersion);
-        addRow('KAUP8R', jsonData.kaup8r);
-        addRow('Uptime (ms)', jsonData.uptimeMillis);
-        addRow('Board ID', jsonData.boardId);
-        addRow('Switch Positions', jsonData.switchPositions);
-        addRow('Config Mode', jsonData.configMode);
-        addRow('AX.25 Received Packets', jsonData.ax25ReceivedPackets);
-        addRow('IL2P Correctable Packets', jsonData.il2pCorrectablePackets);
-        addRow('IL2P Uncorrectable Packets', jsonData.il2pUncorrectablePackets);
-        addRow('Transmit Packets', jsonData.transmitPackets);
-        addRow('Preamble Word Count', jsonData.preambleWordCount);
-        addRow('Main Loop Cycle Count', jsonData.mainLoopCycleCount);
-        addRow('PTT On Time (ms)', jsonData.pttOnTimeMillis);
-        addRow('DCD On Time (ms)', jsonData.dcdOnTimeMillis);
-        addRow('Received Data Bytes', jsonData.receivedDataBytes);
-        addRow('Transmit Data Bytes', jsonData.transmitDataBytes);
-        addRow('FEC Bytes Corrected', jsonData.fecBytesCorrected);
+        dataKeysAndValues.forEach(([key, value]) => {
+            addData(key, value);
+        });
 
         // Append the table to the output
         tncDataOutput.appendChild(table);

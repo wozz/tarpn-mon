@@ -120,14 +120,16 @@ func reader(conn net.Conn) {
 					broadcast("TNC_DATA:" + string(jsonData))
 				}
 			}
-			re := regexp.MustCompile(`(?s)^(\d{2}:\d{2}:\d{2})([RT]) (.*)`)
+			re := regexp.MustCompile(`(?s)^(\d{2}:\d{2}:\d{2})([RT]) ([A-Z0-9-]+>[A-Z0-9-]+) Port=(\d+) (.*)`)
 			matches := re.FindStringSubmatch(c)
-			if len(matches) == 4 {
+			if len(matches) == 6 {
 				timestamp := matches[1]
 				prefix := matches[2]
-				message := matches[3]
+				message := matches[5]
+				route := matches[3]
+				port := matches[4]
 				// Construct the new message with colors
-				parsedMessage := fmt.Sprintf("<span class='time'>%s</span> <span class='%s'>%s %s</span>", timestamp, prefix, prefix, html.EscapeString(message))
+				parsedMessage := fmt.Sprintf("<span class='time'>%s</span> <span class='%s'>%sx Port=%s</span> <span class='msg' style=\"color: %s\">%s %s</span>", timestamp, prefix, prefix, port, hashCallsign(route), route, html.EscapeString(message))
 				broadcast(parsedMessage)
 			} else {
 				broadcast(c)
