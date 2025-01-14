@@ -10,7 +10,7 @@ import (
 func hashCallsign(callsign string) string {
 	hash := md5.Sum([]byte(callsign))
 	hexHash := hex.EncodeToString(hash[:6])
-	var hue int
+	var hue int64
 	fmt.Sscanf(hexHash, "%x", &hue)
 	if hue > 360 {
 		hue = hue % 360
