@@ -1,6 +1,38 @@
 const output = document.getElementById('output');
 const tncDataOutput = document.getElementById('tncData');
+const highlightToggle = document.getElementById('toggleHighlight');
 const websocket = new WebSocket(`ws://${window.location.host}/ws`);
+
+document.addEventListener('DOMContentLoaded', function () {
+  let highlightingEnabled = false;
+  highlightToggle.addEventListener('change', function(event) {
+    highlightingEnabled = event.target.checked;
+  });
+  output.addEventListener('mouseover', function(event) {
+    if (!highlightingEnabled) return;
+    const target = event.target.closest('.logline');
+    if (target) {
+      const routeValue = target.getAttribute('route');
+      document.querySelectorAll('.logline').forEach(line => {
+        if (line.getAttribute('route') === routeValue) {
+          line.classList.add('highlight');
+        }
+      });
+    }
+  });
+  output.addEventListener('mouseout', function(event) {
+    if (!highlightingEnabled) return;
+    const target = event.target.closest('.logline');
+    if (target) {
+      const routeValue = target.getAttribute('route');
+      document.querySelectorAll('.logline').forEach(line => {
+        if (line.getAttribute('route') === routeValue) {
+          line.classList.remove('highlight');
+        }
+      });
+    }
+  });
+});
 
 websocket.onopen = () => {
     console.log('WebSocket connection established.');

@@ -24,6 +24,10 @@ th, td {
   border: 1px solid #666;
 }
 
+.highlight {
+  background-color: #222;
+}
+
 .time {
     color: #a0a0a0;
 }

@@ -129,7 +129,7 @@ func reader(conn net.Conn) {
 				route := matches[3]
 				port := matches[4]
 				// Construct the new message with colors
-				parsedMessage := fmt.Sprintf("<span class='time'>%s</span> <span class='%s'>%sx Port=%s</span> <span class='msg' style=\"color: %s\">%s %s</span>", timestamp, prefix, prefix, port, hashCallsign(route), route, html.EscapeString(message))
+				parsedMessage := fmt.Sprintf("<div class='logline' route='%s'><span class='time'>%s</span> <span class='%s'>%sx Port=%s</span> <span class='msg' style=\"color: %s\">%s %s</span></div>", route, timestamp, prefix, prefix, port, hashCallsign(route), route, html.EscapeString(message))
 				broadcast(parsedMessage)
 			} else {
 				broadcast(c)
