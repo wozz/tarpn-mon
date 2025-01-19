@@ -152,16 +152,14 @@ func reader(conn net.Conn) {
 
 func init() {
 	nodeIniCallsign, err := searchNodeIni()
-	if err != nil {
-		log.Println("could not determine local callsign automatically")
-	} else {
+	if err == nil {
 		defaultCallsign = nodeIniCallsign
 	}
 }
 
 func main() {
 	flag.StringVar(&callsign, "call", defaultCallsign, "callsign to use as pw for telnet connection to node")
-	flag.StringVar(&hostname, "host", "localhost", "hostname to connect to (default: localhost)")
+	flag.StringVar(&hostname, "host", "localhost", "hostname to connect to")
 	flag.IntVar(&numPorts, "ports", 12, "number of ports to monitor")
 	flag.IntVar(&bufferSize, "buffer-size", 5000, "number of lines to store in the memory buffer")
 	flag.BoolVar(&enableConsoleOutput, "console-out", false, "emit lines from monitor to console")
