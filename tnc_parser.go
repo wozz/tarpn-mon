@@ -26,16 +26,24 @@ type tncData struct {
 	FECBytesCorrected        uint64 `json:"fecBytesCorrected"`
 }
 
-func parseTNCData(line string) (*tncData, error) {
+func parseTNCData(line string) (int, *tncData, error) {
+	portNum := 1
 	data := &tncData{}
-	_, line, found := strings.Cut(line, "<UI C>:")
+	prefix, line, found := strings.Cut(line, " <UI C>:")
 	if !found {
-		return nil, fmt.Errorf("invalid TNC data")
+		return portNum, nil, fmt.Errorf("invalid TNC data")
+	}
+	portData := strings.Split(prefix, "=")
+	if len(portData) == 2 {
+		pn, err := strconv.Atoi(portData[1])
+		if err == nil {
+			portNum = pn
+		}
 	}
 
 	parts := strings.Split(line, "=")
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid TNC data format")
+		return portNum, nil, fmt.Errorf("invalid TNC data format")
 	}
 
 	for _, part := range parts[1:] {
@@ -45,7 +53,7 @@ func parseTNCData(line string) (*tncData, error) {
 
 		id, err := strconv.ParseUint(part[:2], 16, 8)
 		if err != nil {
-			return nil, fmt.Errorf("invalid ID format in part: %s", part)
+			return portNum, nil, fmt.Errorf("invalid ID format in part: %s", part)
 		}
 
 		valueStr := part[3:] // Value starts after the ID and colon
@@ -88,5 +96,5 @@ func parseTNCData(line string) (*tncData, error) {
 		}
 	}
 
-	return data, nil
+	return portNum, data, nil
 }

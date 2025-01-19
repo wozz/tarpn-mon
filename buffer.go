@@ -1,7 +1,5 @@
 package main
 
-const bufferSize = 2000
-
 type circularBuffer struct {
 	buffer   []string
 	head     int

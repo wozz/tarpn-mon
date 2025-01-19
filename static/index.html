@@ -11,7 +11,32 @@
     <pre id="output"></pre>
 
     <h2>TNC Data</h2>
-    <div id="tncData"></div>
+    <table id="tncDataTable">
+        <thead>
+            <tr>
+                <th>Port Num</th>
+                <th>Firmware Version</th>
+                <th>Kaup8R</th>
+                <th>Uptime (ms)</th>
+                <th>Board ID</th>
+                <th>Switch Positions</th>
+                <th>Config Mode</th>
+                <th>AX.25 Received Packets</th>
+                <th>IL2P Correctable Packets</th>
+                <th>IL2P Uncorrectable Packets</th>
+                <th>Transmit Packets</th>
+                <th>Preamble Word Count</th>
+                <th>Main Loop Cycle Count</th>
+                <th>PTT On Time (ms)</th>
+                <th>DCD On Time (ms)</th>
+                <th>Received Data Bytes</th>
+                <th>Transmit Data Bytes</th>
+                <th>FEC Bytes Corrected</th>
+            </tr>
+        </thead>
+        <tbody id="tncDataBody">
+        </tbody>
+    </table>
 
     <label for="toggleHighlight">Highlight Enable:</label>
     <input type="checkbox" id="toggleHighlight">

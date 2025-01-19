@@ -9,12 +9,14 @@ func TestParseTNCData(t *testing.T) {
 	tests := []struct {
 		name    string
 		line    string
+		portNum int
 		want    *tncData
 		wantErr bool
 	}{
 		{
-			name: "Valid Data",
-			line: "16:34:33R TNC>USB Port=1 <UI C>:=00:2.76=01:13FAAAAut=02:0010FB70=03:00000001=04:00000002=06:00000001=07:00000000=08:00000011=09:00000000=0A:00000022=0B:00000012=0C:02157BDF=0D:0000064B=0E:00000000=0F:00000000=10:000002B6=11:00000000",
+			name:    "Valid Data",
+			line:    "16:34:33R TNC>USB Port=1 <UI C>:=00:2.76=01:13FAAAAut=02:0010FB70=03:00000001=04:00000002=06:00000001=07:00000000=08:00000011=09:00000000=0A:00000022=0B:00000012=0C:02157BDF=0D:0000064B=0E:00000000=0F:00000000=10:000002B6=11:00000000",
+			portNum: 1,
 			want: &tncData{
 				FirmwareVersion:          "2.76",
 				KAUP8R:                   "13FAAAAut",
@@ -50,8 +52,9 @@ func TestParseTNCData(t *testing.T) {
 		},
 		{
 			name:    "Incomplete Data",
-			line:    "TNC>USB Port=1 <UI C>:=00:2.76=01:13FAA",
+			line:    "TNC>USB Port=2 <UI C>:=00:2.76=01:13FAA",
 			want:    &tncData{FirmwareVersion: "2.76", KAUP8R: "13FAA"},
+			portNum: 2,
 			wantErr: false,
 		},
 		{
@@ -62,7 +65,7 @@ func TestParseTNCData(t *testing.T) {
 		},
 		{
 			name: "Valid Data",
-			line: `16:34:33R TNC>USB Port=1 <UI C>:
+			line: `16:34:33R TNC>USB Port=12 <UI C>:
 =00:3.42=01:=02:00104121=03:00000004=04:00000002=06:000000B0=07:00000000=08:00000000=09:00000000=0A:00000008=0B:00000016=0C:00D93A73=0D:0000064B=0E:00000000=0F:00000000=10:000002B6=11:00000000`,
 			want: &tncData{
 				FirmwareVersion:          "3.42",
@@ -83,6 +86,7 @@ func TestParseTNCData(t *testing.T) {
 				TransmitDataBytes:        0x2b6,
 				FECBytesCorrected:        0,
 			},
+			portNum: 12,
 			wantErr: false,
 		},
 		{
@@ -108,16 +112,19 @@ func TestParseTNCData(t *testing.T) {
 				TransmitDataBytes:        237726,
 				FECBytesCorrected:        2029,
 			},
+			portNum: 1,
 			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseTNCData(tt.line)
+			portNum, got, err := parseTNCData(tt.line)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseTNCData() error = %v, wantErr %v", err, tt.wantErr)
 				return
+			} else if !tt.wantErr && portNum != tt.portNum {
+				t.Errorf("parseTNCData() unexpected port: %d, expected: %d", portNum, tt.portNum)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parseTNCData() = %v, want %v", got, tt.want)

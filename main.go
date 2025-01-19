@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -31,18 +32,21 @@ const (
 )
 
 var (
-	callsign string
-	hostname string
-	numPorts int
+	callsign   string
+	hostname   string
+	numPorts   int
+	bufferSize int
+	debugInfo  bool
 )
 
 var state = state_CONNECTING
 
-var dataBuffer = newCircularBuffer(bufferSize)
+var dataBuffer *circularBuffer
 
 var (
-	enableConsoleOutput = true
+	enableConsoleOutput = false
 	enableFileLogging   = false
+	defaultCallsign     = ""
 )
 
 func reader(conn net.Conn) {
@@ -115,10 +119,10 @@ func reader(conn net.Conn) {
 			c = strings.TrimPrefix(c, "[")
 			c = strings.TrimSuffix(c, "\r")
 			c = strings.ReplaceAll(c, "\r", "\n")
-			if tncData, err := parseTNCData(c); err == nil {
+			if portNum, tncData, err := parseTNCData(c); err == nil {
 				jsonData, err := json.Marshal(tncData)
 				if err == nil {
-					broadcast("TNC_DATA:" + string(jsonData))
+					broadcast("TNC_DATA:" + strconv.Itoa(portNum) + ":" + string(jsonData))
 				}
 			}
 			re := regexp.MustCompile(`(?s)^(\d{2}:\d{2}:\d{2})([RT]) ([A-Z0-9-]+>[A-Z0-9-]+) Port=(\d+) (.*)`)
@@ -146,11 +150,31 @@ func reader(conn net.Conn) {
 	}
 }
 
+func init() {
+	nodeIniCallsign, err := searchNodeIni()
+	if err != nil {
+		log.Println("could not determine local callsign automatically")
+	} else {
+		defaultCallsign = nodeIniCallsign
+	}
+}
+
 func main() {
-	flag.StringVar(&callsign, "call", "", "callsign to use as pw for telnet connection to node")
+	flag.StringVar(&callsign, "call", defaultCallsign, "callsign to use as pw for telnet connection to node")
 	flag.StringVar(&hostname, "host", "localhost", "hostname to connect to (default: localhost)")
-	flag.IntVar(&numPorts, "ports", 1, "number of ports to monitor")
+	flag.IntVar(&numPorts, "ports", 12, "number of ports to monitor")
+	flag.IntVar(&bufferSize, "buffer-size", 5000, "number of lines to store in the memory buffer")
+	flag.BoolVar(&enableConsoleOutput, "console-out", false, "emit lines from monitor to console")
+	flag.BoolVar(&debugInfo, "debug-info", false, "emit binary debug info")
 	flag.Parse()
+
+	if debugInfo {
+		info, _ := debug.ReadBuildInfo()
+		fmt.Println(info)
+		os.Exit(0)
+	}
+
+	dataBuffer = newCircularBuffer(bufferSize)
 	ctx := context.Background()
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:8011", hostname))
 	if err != nil {
@@ -197,7 +221,6 @@ func main() {
 func connectMonitorString(nump int) string {
 	var portmask int64
 	for i := range nump {
-		// monitor all 32 ports
 		portmask |= 1 << i
 	}
 	return fmt.Sprintf(`\\\\%x 1 1 1 0 0 0 1`, portmask)
