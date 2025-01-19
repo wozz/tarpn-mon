@@ -164,7 +164,12 @@ func main() {
 	// must send this string to get monitor mode
 	conn.Write([]byte("BPQTERMTCP\r"))
 	time.Sleep(time.Second)
-	conn.Write([]byte(`\\\\1 1 1 1 0 0 0 1` + "\r"))
+	var portmask int64
+	for i := range 32 {
+		// monitor all 32 ports
+		portmask |= 1 << i
+	}
+	conn.Write([]byte(fmt.Sprintf(`\\\\%x 1 1 1 0 0 0 1`, portmask) + "\r"))
 	time.Sleep(time.Second * 3)
 
 	go func() {
