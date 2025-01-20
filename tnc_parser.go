@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type tncData struct {
 	FirmwareVersion          string `json:"firmwareVersion"`
 	KAUP8R                   string `json:"kaup8r"`
 	UptimeMillis             uint64 `json:"uptimeMillis"`
+	Uptime                   string `json:"uptime"`
 	BoardID                  uint64 `json:"boardId"`
 	SwitchPositions          uint64 `json:"switchPositions"`
 	ConfigMode               uint64 `json:"configMode"`
@@ -20,7 +22,9 @@ type tncData struct {
 	PreambleWordCount        uint64 `json:"preambleWordCount"`
 	MainLoopCycleCount       uint64 `json:"mainLoopCycleCount"`
 	PTTOnTimeMillis          uint64 `json:"pttOnTimeMillis"`
+	PTTOnTime                string `json:"pttOnTime"`
 	DCDOnTimeMillis          uint64 `json:"dcdOnTimeMillis"`
+	DCDOnTime                string `json:"DCDOnTime"`
 	ReceivedDataBytes        uint64 `json:"receivedDataBytes"`
 	TransmitDataBytes        uint64 `json:"transmitDataBytes"`
 	FECBytesCorrected        uint64 `json:"fecBytesCorrected"`
@@ -65,6 +69,7 @@ func parseTNCData(line string) (int, *tncData, error) {
 			data.KAUP8R = valueStr
 		case 0x02:
 			data.UptimeMillis, _ = strconv.ParseUint(valueStr, 16, 64)
+			data.Uptime = strings.TrimSuffix((time.Millisecond * time.Duration(data.UptimeMillis)).Truncate(time.Minute).String(), "0s")
 		case 0x03:
 			data.BoardID, _ = strconv.ParseUint(valueStr, 16, 64)
 		case 0x04:
@@ -85,8 +90,10 @@ func parseTNCData(line string) (int, *tncData, error) {
 			data.MainLoopCycleCount, _ = strconv.ParseUint(valueStr, 16, 64)
 		case 0x0D:
 			data.PTTOnTimeMillis, _ = strconv.ParseUint(valueStr, 16, 64)
+			data.PTTOnTime = (time.Millisecond * time.Duration(data.PTTOnTimeMillis)).Truncate(time.Second).String()
 		case 0x0E:
 			data.DCDOnTimeMillis, _ = strconv.ParseUint(valueStr, 16, 64)
+			data.DCDOnTime = (time.Millisecond * time.Duration(data.DCDOnTimeMillis)).Truncate(time.Second).String()
 		case 0x0F:
 			data.ReceivedDataBytes, _ = strconv.ParseUint(valueStr, 16, 64)
 		case 0x10:

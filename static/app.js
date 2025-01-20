@@ -43,7 +43,9 @@ function createWebSocket() {
 
   websocket.onmessage = (event) => {
     if (event.data.startsWith("TNC_DATA:")) {
-      const [_, portNumStr, jsonDataStr] = event.data.split(':');
+      let data = event.data.substring(event.data.indexOf(':')+1);
+      const portNumStr = data.substring(0, data.indexOf(':'));
+      const jsonDataStr = data.substring(data.indexOf(':')+1);
       const portNum = parseInt(portNumStr);
       const jsonData = JSON.parse(jsonDataStr);
       const rowId = `tnc-datarow-${portNum}`;
@@ -52,7 +54,6 @@ function createWebSocket() {
         tncDataRows.forEach((rowObj, index) => {
             if (rowObj.id === rowId) {
                 tncDataRows.splice(index, 1);
-                break;
             }
         });
         existingRow.remove();
@@ -62,10 +63,8 @@ function createWebSocket() {
       row.id = rowId;
 
       const addDataCell = (key, value) => {
-        const cell = document.createElement('td');
-        cell.textContent = key;
-        row.appendChild(cell);
         const valueCell = document.createElement('td');
+        valueCell.id = key.replace(" ", "-");
         valueCell.textContent = value;
         row.appendChild(valueCell);
       };
@@ -74,7 +73,7 @@ function createWebSocket() {
       const dataKeysAndValues = [
           ['Firmware Version', jsonData.firmwareVersion],
           ['KAUP8R', jsonData.kaup8r],
-          ['Uptime (ms)', jsonData.uptimeMillis],
+          ['Uptime', jsonData.uptime],
           ['Board ID', jsonData.boardId],
           ['Switch Positions', jsonData.switchPositions],
           ['Config Mode', jsonData.configMode],
@@ -84,8 +83,8 @@ function createWebSocket() {
           ['Transmit Packets', jsonData.transmitPackets],
           ['Preamble Word Count', jsonData.preambleWordCount],
           ['Main Loop Cycle Count', jsonData.mainLoopCycleCount],
-          ['PTT On Time (ms)', jsonData.pttOnTimeMillis],
-          ['DCD On Time (ms)', jsonData.dcdOnTimeMillis],
+          ['PTT On Time', jsonData.pttOnTime],
+          ['DCD On Time', jsonData.dcdOnTime],
           ['Received Data Bytes', jsonData.receivedDataBytes],
           ['Transmit Data Bytes', jsonData.transmitDataBytes],
           ['FEC Bytes Corrected', jsonData.fecBytesCorrected]
