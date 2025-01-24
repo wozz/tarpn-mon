@@ -32,12 +32,15 @@ const (
 )
 
 var (
-	callsign   string
-	hostname   string
-	numPorts   int
-	bufferSize int
-	debugInfo  bool
+	callsign    string
+	hostname    string
+	numPorts    int
+	bufferSize  int
+	debugInfo   bool
+	versionInfo bool
 )
+
+var Version = "dev"
 
 var state = state_CONNECTING
 
@@ -164,9 +167,13 @@ func main() {
 	flag.IntVar(&bufferSize, "buffer-size", 5000, "number of lines to store in the memory buffer")
 	flag.BoolVar(&enableConsoleOutput, "console-out", false, "emit lines from monitor to console")
 	flag.BoolVar(&debugInfo, "debug-info", false, "emit binary debug info")
+	flag.BoolVar(&versionInfo, "version", false, "display version string")
 	flag.Parse()
 
-	if debugInfo {
+	if versionInfo {
+		fmt.Println(Version)
+		os.Exit(0)
+	} else if debugInfo {
 		info, _ := debug.ReadBuildInfo()
 		fmt.Println(info)
 		os.Exit(0)
