@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -21,14 +22,17 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	defer conn.Close()
+	wc := &websocketConn{
+		wc: conn,
+	}
+	defer wc.kill()
 
 	// Add the new client to the list of connected clients
-	clients[conn] = true
+	clients[wc] = true
 
 	history := dataBuffer.getAll()
 	for _, message := range history {
-		if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+		if err := wc.write(message); err != nil {
 			log.Println(err)
 			return
 		}
@@ -45,7 +49,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove the client from the list when the connection is closed
-	delete(clients, conn)
+	delete(clients, wc)
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -59,16 +63,33 @@ func setupRoutes() {
 	http.Handle("/static/", http.FileServer(http.FS(static)))
 }
 
-var clients = make(map[*websocket.Conn]bool) // concurrent safe map of clients
+type websocketConn struct {
+	mu sync.Mutex
+	wc *websocket.Conn
+}
+
+func (w *websocketConn) write(message string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.wc.WriteMessage(websocket.TextMessage, []byte(message))
+}
+
+func (w *websocketConn) kill() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.wc.Close()
+}
+
+var clients = make(map[*websocketConn]bool)
 
 func broadcast(message string) {
 	dataBuffer.add(message)
 	for client := range clients {
-		err := client.WriteMessage(websocket.TextMessage, []byte(message))
+		err := client.write(message)
 		if err != nil {
 			log.Printf("Websocket error: %s", err)
-			client.Close()
 			delete(clients, client)
+			client.kill()
 		}
 	}
 }
