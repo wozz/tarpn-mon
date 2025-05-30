@@ -2,6 +2,11 @@ body {
   font-family: monospace;
   background-color: #222;
   color: #eee;
+  flex-direction: column;
+  min-height: 100vh;
+  margin: 0;
+  height: 100%;
+  display: flex;
 }
 
 #output {
@@ -13,6 +18,11 @@ body {
   background-color: #000;
 }
 
+main {
+  flex-grow: 1;
+  padding: 20px;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;
@@ -22,6 +32,12 @@ th, td {
   text-align: left;
   padding: 8px;
   border: 1px solid #666;
+}
+
+footer {
+  padding: 10px 0;
+  text-align: center;
+  margin-top: 30px;
 }
 
 .highlight {

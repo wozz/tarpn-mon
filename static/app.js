@@ -93,6 +93,28 @@ document.addEventListener("DOMContentLoaded", function () {
     hideUSBEnabled = event.target.checked;
     updateAllMessagesVisibility();
   });
+  fetch("/version")
+    .then((resp) => {
+      if (!resp.ok) {
+        throw new Error(`HTTP error! status: ${resp.status}`);
+      }
+      return resp.text();
+    })
+    .then((version) => {
+      const versionPlaceholder = document.getElementById("version-placeholder");
+      if (versionPlaceholder) {
+        versionPlaceholder.textContent = `Version: ${version}`;
+      } else {
+        console.error("Error: could not display version");
+      }
+    })
+    .catch((error) => {
+      console.error("Error: could not fetch version:", error);
+      const versionPlaceholder = document.getElementById("version-placeholder");
+      if (versionPlaceholder) {
+        versionPlaceholder.textContent = "Version: N/A";
+      }
+    });
 });
 
 function createWebSocket() {
