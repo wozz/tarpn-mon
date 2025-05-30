@@ -38,8 +38,15 @@
         </tbody>
     </table>
 
-    <label for="toggleHighlight">Highlight Enable:</label>
-    <input type="checkbox" id="toggleHighlight">
+    <h3>Settings</h3>
+    <label for="toggleAutoScroll">Auto-scroll:</label>
+    <input type="checkbox" id="toggleAutoScroll" checked><br/>
+    <label for="toggleHideUSB">Hide USB Packets:</label>
+    <input type="checkbox" id="toggleHideUSB"><br/>
+    <h4>Port Filters</h4>
+    <div id=portFiltersContainer class="port-checkbox-group">
+      No ports detected yet.
+    </div>
 
     <script src="/static/app.js"></script>
 </body>

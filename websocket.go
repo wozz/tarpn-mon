@@ -57,9 +57,14 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(content)
 }
 
+func versionHandler(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte(Version))
+}
+
 func setupRoutes() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/ws", websocketHandler)
+	http.HandleFunc("/version", versionHandler)
 	http.Handle("/static/", http.FileServer(http.FS(static)))
 }
 

@@ -41,3 +41,7 @@ th, td {
     color: #7777dd; /* Light blue for R */
     font-weight: bold;
 }
+
+.hidden {
+  display: none;
+}
