@@ -9,13 +9,14 @@ body {
   display: flex;
 }
 
-#output {
-  white-space: pre-wrap;
-  height: 500px;
+#output-container {
+  white-space: pre-wrap; /* This might be redundant if individual lines handle it, but can be a fallback */
   overflow-y: scroll;
   border: 1px solid #666;
   padding: 10px;
-  background-color: #000;
+  background-color: #000; /* Dark background for the log area */
+  margin-bottom: 20px; /* Add some space below the log output */
+  height: 600px;
 }
 
 main {
@@ -60,4 +61,12 @@ footer {
 
 .hidden {
   display: none;
+}
+
+.message-content {
+  white-space: pre-wrap;
+}
+
+.raw-message {
+  white-space: pre-wrap; /* Ensure raw messages also preserve whitespace */
 }

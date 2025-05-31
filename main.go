@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"html"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -59,30 +58,30 @@ const maxBackoff = 5 * time.Minute
 // Initial backoff time
 const initialBackoff = 1 * time.Second
 
-// MessageData holds the data for the message template
-type MessageData struct {
-	Timestamp  string
-	Prefix     string
-	Route      string
-	Port       string
-	Message    string
-	RouteColor string
+// LogMessageData holds the data for a log line to be sent as JSON
+type LogMessageData struct {
+	Type       string `json:"type"` // "log" or "tnc"
+	Timestamp  string `json:"timestamp,omitempty"`
+	Prefix     string `json:"prefix,omitempty"`
+	Route      string `json:"route,omitempty"`
+	Port       string `json:"port,omitempty"`
+	Message    string `json:"message,omitempty"`
+	RouteColor string `json:"routeColor,omitempty"`
+	Raw        string `json:"raw,omitempty"` // For messages not matching the regex
 }
 
-var messageTemplate *template.Template
+// TNCDataMessage holds TNC port data and its port number
+type TNCDataMessage struct {
+	Type    string      `json:"type"` // "tnc_data"
+	PortNum int         `json:"portNum"`
+	Data    interface{} `json:"data"` // This will be the parsed TNCData struct
+}
 
 func init() {
 	nodeIniCallsign, err := searchNodeIni()
 	if err == nil {
 		defaultCallsign = nodeIniCallsign
 	}
-
-	// Load and parse the message template
-	tmpl, err := template.ParseFS(static, "static/templates/message.html")
-	if err != nil {
-		log.Fatalf("Failed to parse message template: %v", err)
-	}
-	messageTemplate = tmpl
 }
 
 func connectWithRetry(ctx context.Context) (net.Conn, error) {
@@ -195,11 +194,11 @@ func handleConnection(ctx context.Context, conn net.Conn) error {
 				if len(c) != 4 || c[:2] != "\xff\xff" {
 					return fmt.Errorf("unexpected init string")
 				}
-				numPorts, err := strconv.Atoi(string(c[2]))
+				numPortsVal, err := strconv.Atoi(string(c[2]))
 				if err != nil {
 					return fmt.Errorf("invalid port number: %v", err)
 				}
-				for i := range numPorts {
+				for i := range numPortsVal {
 					c, err = r.ReadString('|')
 					if err != nil {
 						return fmt.Errorf("error reading port info: %v", err)
@@ -230,33 +229,45 @@ func handleConnection(ctx context.Context, conn net.Conn) error {
 				c = strings.TrimSuffix(c, "\r")
 				c = strings.ReplaceAll(c, "\r", "\n")
 
+				// Try to parse as TNC structured data first
 				if portNum, tncData, err := parseTNCData(c); err == nil {
-					if jsonData, err := json.Marshal(tncData); err == nil {
-						broadcast("TNC_DATA:" + strconv.Itoa(portNum) + ":" + string(jsonData))
+					msg := TNCDataMessage{
+						Type:    "tnc_data",
+						PortNum: portNum,
+						Data:    tncData,
 					}
-				}
+					jsonData, err := json.Marshal(msg)
+					if err == nil {
+						broadcast(string(jsonData))
+					} else {
+						log.Printf("Error marshalling TNC data to JSON: %v", err)
+					}
+				} // continue to parse as regular log line even for TNC data
 
 				re := regexp.MustCompile(`(?s)^(\d{2}:\d{2}:\d{2})([RT]) ([A-Z0-9-]+>[A-Z0-9-]+) Port=(\d+) (.*)`)
 				matches := re.FindStringSubmatch(c)
+				var logMsgData LogMessageData
 				if len(matches) == 6 {
-					data := MessageData{
+					logMsgData = LogMessageData{
+						Type:       "log",
 						Timestamp:  matches[1],
 						Prefix:     matches[2],
 						Route:      matches[3],
 						Port:       matches[4],
-						Message:    html.EscapeString(matches[5]),
+						Message:    html.EscapeString(matches[5]), // Keep HTML escaping for safety on client
 						RouteColor: hashCallsign(matches[3]),
 					}
-
-					var buf strings.Builder
-					if err := messageTemplate.Execute(&buf, data); err != nil {
-						log.Printf("Error executing template: %v", err)
-						broadcast(c) // Fallback to raw message on template error
-					} else {
-						broadcast(buf.String())
-					}
 				} else {
-					broadcast(c)
+					logMsgData = LogMessageData{
+						Type: "log",
+						Raw:  c, // Send the raw string if it doesn't match
+					}
+				}
+				jsonData, err := json.Marshal(logMsgData)
+				if err == nil {
+					broadcast(string(jsonData))
+				} else {
+					log.Printf("Error marshalling log message to JSON: %v", err)
 				}
 
 				if enableConsoleOutput {
@@ -314,12 +325,15 @@ func main() {
 			conn, err := connectWithRetry(ctx)
 			if err != nil {
 				log.Printf("Failed to establish connection: %v", err)
+				// Simple backoff before retrying connectWithRetry to avoid tight loop on context errors
+				time.Sleep(initialBackoff)
 				continue
 			}
 
 			if err := initializeConnection(conn); err != nil {
 				log.Printf("Failed to initialize connection: %v", err)
 				conn.Close()
+				time.Sleep(initialBackoff) // Backoff before retrying connection
 				continue
 			}
 
@@ -331,7 +345,7 @@ func main() {
 			// Close the connection before retrying
 			conn.Close()
 
-			// Small delay before reconnecting to avoid tight loop
+			// Small delay before reconnecting to avoid tight loop if handleConnection exits immediately
 			time.Sleep(time.Second)
 		}
 	}

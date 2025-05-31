@@ -1,59 +1,109 @@
-
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>TARPN Monitor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TARPN Monitor (Vue)</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <main>
-    <h1>TARPN Monitor</h1>
-    <pre id="output"></pre>
+    <div id="app">
+        <main>
+            <h1>TARPN Monitor</h1>
+            <div id="output-container">
+                <div v-if="logMessages.length === 0" class="empty-log-placeholder">Waiting for messages...</div>
+                <div v-for="(msg, index) in logMessages" :key="index" class="logline"
+                     :class="[
+                         msg.prefix ? 'prefix-' + msg.prefix : '',
+                         msg.port ? 'port-' + msg.port : '',
+                         isHidden(msg) ? 'hidden' : ''
+                     ]"
+                     :data-port="msg.port"
+                     :data-route="msg.route">
+                    <span class="time">{{ msg.timestamp }}</span>&nbsp;
+                    <template v-if="msg.raw">
+                        <span class="raw-message">{{ msg.raw }}</span>
+                    </template>
+                    <template v-else>
+                        <span :class="msg.prefix">{{ msg.prefix }}x Port={{ msg.port }}</span>&nbsp;
+                        <span class="msg" :style="{ color: msg.routeColor }">{{ msg.route }} <span class="message-content" v-html="msg.message"></span></span>
+                    </template>
+                </div>
+            </div>
 
-    <h2>TNC Data</h2>
-    <table id="tncDataTable">
-        <thead>
-            <tr>
-                <th>Port Num</th>
-                <th>Firmware Version</th>
-                <th>Kaup8R</th>
-                <th>Uptime</th>
-                <th>Board ID</th>
-                <th>Switch Positions</th>
-                <th>Config Mode</th>
-                <th>AX.25 Received Packets</th>
-                <th>IL2P Correctable Packets</th>
-                <th>IL2P Uncorrectable Packets</th>
-                <th>Transmit Packets</th>
-                <th>Preamble Word Count</th>
-                <th>Main Loop Cycle Count</th>
-                <th>PTT On Time</th>
-                <th>DCD On Time</th>
-                <th>Received Data Bytes</th>
-                <th>Transmit Data Bytes</th>
-                <th>FEC Bytes Corrected</th>
-            </tr>
-        </thead>
-        <tbody id="tncDataBody">
-        </tbody>
-    </table>
+            <h2>TNC Data</h2>
+            <table id="tncDataTable">
+                <thead>
+                    <tr>
+                        <th>Port Num</th>
+                        <th>Firmware Version</th>
+                        <th>KAUP8R</th>
+                        <th>Uptime</th>
+                        <th>Board ID</th>
+                        <th>Switch Positions</th>
+                        <th>Config Mode</th>
+                        <th>AX.25 Rx</th>
+                        <th>IL2P Ok</th>
+                        <th>IL2P Err</th>
+                        <th>Tx Packets</th>
+                        <th>Preamble</th>
+                        <th>Main Loop</th>
+                        <th>PTT On</th>
+                        <th>DCD On</th>
+                        <th>Rx Bytes</th>
+                        <th>Tx Bytes</th>
+                        <th>FEC Corrected</th>
+                    </tr>
+                </thead>
+                <tbody id="tncDataBody">
+                    <tr v-if="Object.keys(tncData).length === 0">
+                        <td :colspan="18" style="text-align: center;">No TNC data received yet.</td>
+                    </tr>
+                    <tr v-for="(data, port) in sortedTncData" :key="port">
+                        <td>{{ port }}</td>
+                        <td>{{ data.firmwareVersion }}</td>
+                        <td>{{ data.kaup8r }}</td>
+                        <td>{{ data.uptime }}</td>
+                        <td>{{ data.boardId }}</td>
+                        <td>{{ data.switchPositions }}</td>
+                        <td>{{ data.configMode }}</td>
+                        <td>{{ data.ax25ReceivedPackets }}</td>
+                        <td>{{ data.il2pCorrectablePackets }}</td>
+                        <td>{{ data.il2pUncorrectablePackets }}</td>
+                        <td>{{ data.transmitPackets }}</td>
+                        <td>{{ data.preambleWordCount }}</td>
+                        <td>{{ data.mainLoopCycleCount }}</td>
+                        <td>{{ data.pttOnTime }}</td>
+                        <td>{{ data.dcdOnTime }}</td>
+                        <td>{{ data.receivedDataBytes }}</td>
+                        <td>{{ data.transmitDataBytes }}</td>
+                        <td>{{ data.fecBytesCorrected }}</td>
+                    </tr>
+                </tbody>
+            </table>
 
-    <h3>Settings</h3>
-    <label for="toggleAutoScroll">Auto-scroll:</label>
-    <input type="checkbox" id="toggleAutoScroll" checked><br/>
-    <label for="toggleHideUSB">Hide USB Packets:</label>
-    <input type="checkbox" id="toggleHideUSB"><br/>
-    <h4>Port Filters</h4>
-    <div id=portFiltersContainer class="port-checkbox-group">
-      No ports detected yet.
+            <h3>Settings</h3>
+            <label for="toggleAutoScroll">Auto-scroll:</label>
+            <input type="checkbox" id="toggleAutoScroll" v-model="autoScrollEnabled"><br/>
+            <label for="toggleHideUSB">Hide TNC&gt;USB Packets:</label>
+            <input type="checkbox" id="toggleHideUSB" v-model="hideUSBRoutes"><br/>
+            
+            <h4>Port Filters</h4>
+            <div id="portFiltersContainer" class="port-checkbox-group">
+                <span v-if="uniquePorts.length === 0">No ports detected yet.</span>
+                <div v-for="port in sortedUniquePorts" :key="port" class="port-checkbox-item">
+                    <label :for="'port-' + port + '-checkbox'">Port {{ port }}:</label>
+                    <input type="checkbox" :id="'port-' + port + '-checkbox'" :value="port" v-model="visiblePorts">
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <span id="version-placeholder">Version: {{ version }}</span>
+        </footer>
     </div>
-  </main>
 
-  <footer>
-    <span id="version-placeholder"></span>
-  </footer>
-
-  <script src="/static/app.js"></script>
+    <script src="/static/js/vue.global.js"></script>
+    <script src="/static/js/app.vue.js"></script>
 </body>
 </html>
