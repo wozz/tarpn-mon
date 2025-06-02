@@ -70,3 +70,43 @@ footer {
 .raw-message {
   white-space: pre-wrap; /* Ensure raw messages also preserve whitespace */
 }
+
+.graph-container {
+    display: flex;
+    align-items: flex-end; /* Align bars to the bottom */
+    justify-content: space-around; /* Distribute space around items */
+    height: 120px; /* Fixed height for the graph area */
+    background-color: #111; /* Slightly lighter than output container for distinction */
+    border: 1px solid #666;
+    padding: 10px;
+    margin-bottom: 20px;
+    overflow-x: auto; /* Allow horizontal scrolling if too many bars */
+    overflow-y: hidden;
+}
+
+.graph-bar-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 2px; /* Spacing between bars */
+}
+
+.graph-bar {
+    width: 10px; /* Width of each bar */
+    background-color: #4CAF50; /* Green color for bars */
+    transition: height 0.3s ease; /* Smooth transition for height changes */
+}
+
+.graph-label {
+    font-size: 0.7em;
+    color: #ccc;
+    margin-top: 4px;
+}
+
+.empty-graph-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    color: #888;
+}

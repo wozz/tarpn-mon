@@ -20,7 +20,7 @@
                      ]"
                      :data-port="msg.port"
                      :data-route="msg.route">
-                    <span class="time">{{ msg.timestamp }}</span>&nbsp;
+                    <span class="time">{{ msg.displayTimestamp }}</span>&nbsp;
                     <template v-if="msg.raw">
                         <span class="raw-message">{{ msg.raw }}</span>
                     </template>
@@ -28,6 +28,14 @@
                         <span :class="msg.prefix">{{ msg.prefix }}x Port={{ msg.port }}</span>&nbsp;
                         <span class="msg" :style="{ color: msg.routeColor }">{{ msg.route }} <span class="message-content" v-html="msg.message"></span></span>
                     </template>
+                </div>
+            </div>
+
+            <h2>Message Rate (Messages per Minute)</h2>
+            <div id="messageRateGraph" class="graph-container">
+                <div v-if="!displayedGraphData || displayedGraphData.length === 0 || displayedGraphData.every(bar => bar.count === 0)" class="empty-graph-placeholder">Waiting for data...</div>
+                <div v-else v-for="(barData, index) in displayedGraphData" :key="barData.minuteKey || index" class="graph-bar-container">
+                    <div class="graph-bar" :title="barData.label + ': ' + barData.count + ' message' + (barData.count === 1 ? '' : 's')" :style="{ height: Math.min(100, barData.count) + 'px' }"></div>
                 </div>
             </div>
 
@@ -83,17 +91,17 @@
             </table>
 
             <h3>Settings</h3>
-            <label for="toggleAutoScroll">Auto-scroll:</label>
-            <input type="checkbox" id="toggleAutoScroll" v-model="autoScrollEnabled"><br/>
-            <label for="toggleHideUSB">Hide TNC&gt;USB Packets:</label>
-            <input type="checkbox" id="toggleHideUSB" v-model="hideUSBRoutes"><br/>
+            <label for="toggleAutoScroll" title="Enable or disable automatic scrolling of the log output. When enabled, the log will scroll to the newest message.">Auto-scroll:</label>
+            <input type="checkbox" id="toggleAutoScroll" v-model="autoScrollEnabled" title="Enable or disable automatic scrolling of the log output. When enabled, the log will scroll to the newest message."><br/>
+            <label for="toggleHideUSB" title="Hide messages that are routed from the TNC to the USB interface. Useful for focusing on over-the-air packets.">Hide TNC&gt;USB Packets:</label>
+            <input type="checkbox" id="toggleHideUSB" v-model="hideUSBRoutes" title="Hide messages that are routed from the TNC to the USB interface. Useful for focusing on over-the-air packets."><br/>
             
             <h4>Port Filters</h4>
             <div id="portFiltersContainer" class="port-checkbox-group">
                 <span v-if="uniquePorts.length === 0">No ports detected yet.</span>
                 <div v-for="port in sortedUniquePorts" :key="port" class="port-checkbox-item">
-                    <label :for="'port-' + port + '-checkbox'">Port {{ port }}:</label>
-                    <input type="checkbox" :id="'port-' + port + '-checkbox'" :value="port" v-model="visiblePorts">
+                    <label :for="'port-' + port + '-checkbox'" :title="'Show or hide messages from port ' + port">Port {{ port }}:</label>
+                    <input type="checkbox" :id="'port-' + port + '-checkbox'" :value="port" v-model="visiblePorts" :title="'Show or hide messages from port ' + port">
                 </div>
             </div>
         </main>
