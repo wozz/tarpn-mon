@@ -16,36 +16,199 @@ const App = {
         const uniquePorts = ref(new Set());
         const visiblePorts = ref([]); // Array of port numbers that are checked (visible)
         const version = ref("N/A");
+        const ax25TooltipEnabled = ref(false); // New setting for AX.25 tooltip, off by default
         const outputContainer = ref(null); // For autoscroll
         const messageCountsByMinute = reactive({}); // Key: UTC minute string, Value: count
         const graphMinuteSlots = ref([]); // Array of Date objects for the last 60 minutes (slots)
 
         const graphUpdateQueue = ref([]); // Stores utcDate objects of new messages for graph processing
-
         const tncDataUpdateQueue = ref([]); // Stores incoming TNC data objects for batch processing
-
         const logMessageQueue = ref([]); // Stores incoming log message objects for batch processing
+
+        const tooltip = reactive({ // For AX.25 details tooltip
+            visible: false,
+            data: {},
+            x: 0,
+            y: 0
+        });
+
+        // Helper to decode HTML entities for parsing
+        function htmlDecode(input) {
+            if (!input) return "";
+            const doc = new DOMParser().parseFromString(input, "text/html");
+            return doc.documentElement.textContent;
+        }
+
+        function parseAX25Callsign(callsignStr) {
+            if (!callsignStr) return { call: '', ssid: null };
+            const parts = callsignStr.split('-');
+            const call = parts[0];
+            const ssid = parts.length > 1 ? parts[1] : null;
+            return { call, ssid };
+        }
+
+        function getFrameTypeAndExplanation(controlContent) {
+            if (!controlContent) return { type: "Unknown/Text", explanation: "No AX.25 control field present. Assumed to be plain text or similar.", isCommand: false, isResponse: false, pollFinal: null, ns: null, nr: null, detailsString: "" };
+
+            const parts = controlContent.split(/\s+/);
+            let frameType = "Unknown";
+            let explanation = "";
+            let isCommand = parts.includes('C');
+            let isResponse = parts.includes('R'); 
+            let pollFinal = null;
+            if (parts.includes('P')) pollFinal = 'Poll';
+            if (parts.includes('F')) pollFinal = 'Final';
+
+            let ns = null; 
+            let nr = null; 
+
+            const mainToken = parts[0];
+
+            if (mainToken === 'I') {
+                frameType = "Information (I)";
+                explanation = "Carries Layer 3 data, sequenced and acknowledged.";
+            } else if (mainToken === 'UI') {
+                frameType = "Unnumbered Information (UI)";
+                explanation = "Carries Layer 3 data, unsequenced and unacknowledged (e.g., APRS, broadcasts).";
+            } else if (mainToken === 'SABM') {
+                frameType = "Set Asynchronous Balanced Mode (SABM)";
+                explanation = "Command to initiate a data link connection (standard mode).";
+            } else if (mainToken === 'SABME') {
+                frameType = "Set Asynchronous Balanced Mode Extended (SABME)";
+                explanation = "Command to initiate a data link connection (extended mode, for modulo 128 sequence numbers).";
+            } else if (mainToken === 'DISC') {
+                frameType = "Disconnect (DISC)";
+                explanation = "Command to terminate a data link connection.";
+            } else if (mainToken === 'DM') {
+                frameType = "Disconnected Mode (DM)";
+                explanation = "Response indicating the station is logically disconnected.";
+            } else if (mainToken === 'UA') {
+                frameType = "Unnumbered Acknowledgment (UA)";
+                explanation = "Response acknowledging receipt and acceptance of SABM, SABME, or DISC commands.";
+            } else if (mainToken === 'FRMR') {
+                frameType = "Frame Reject (FRMR)";
+                explanation = "Response reporting receipt of an invalid or unimplementable frame.";
+            } else if (mainToken === 'RR') {
+                frameType = "Receive Ready (RR)";
+                explanation = "Supervisory frame indicating readiness to receive I-frames; acknowledges I-frames up to N(R)-1.";
+            } else if (mainToken === 'RNR') {
+                frameType = "Receive Not Ready (RNR)";
+                explanation = "Supervisory frame indicating a temporary inability to receive I-frames; acknowledges I-frames up to N(R)-1.";
+            } else if (mainToken === 'REJ') {
+                frameType = "Reject (REJ)";
+                explanation = "Supervisory frame requesting retransmission of I-frames starting with N(R).";
+            } else {
+                explanation = "Control field: " + controlContent;
+            }
+
+            let controlDetailsText = [];
+            if (isCommand && !isResponse && !['RR', 'RNR', 'REJ'].includes(mainToken)) controlDetailsText.push("Command indication");
+            if (isResponse && !isCommand && !['RR', 'RNR', 'REJ'].includes(mainToken)) controlDetailsText.push("Response indication");
+            
+            if (pollFinal) controlDetailsText.push(`${pollFinal} bit set`);
+
+            parts.forEach(part => {
+                if (part.startsWith('S') && part.length > 1 && !isNaN(part.substring(1))) {
+                    ns = part.substring(1);
+                    controlDetailsText.push(`N(S)=${ns}`);
+                }
+            });
+
+            const nrCandidateParts = parts.filter(p => p.match(/^R\d+$/));
+            if (nrCandidateParts.length > 0) {
+                 const nrVal = nrCandidateParts[0].substring(1);
+                 if (mainToken === 'I' || mainToken === 'RR' || mainToken === 'RNR' || mainToken === 'REJ') {
+                    nr = nrVal;
+                    controlDetailsText.push(`N(R)=${nr}`);
+                 }
+            }
+            
+            return {
+                type: frameType,
+                explanation: explanation,
+                isCommand,
+                isResponse,
+                pollFinal,
+                ns,
+                nr,
+                detailsString: controlDetailsText.join(', ')
+            };
+        }
+
+        function parseAX25Message(ax25String) { 
+            if (!ax25String || typeof ax25String !== 'string') {
+                return null;
+            }
+
+            const ax25Pattern = /^([A-Z0-9\-]+(?:-[0-9]+)?(?:\s+VIA\s+[A-Z0-9\-]+(?:-[0-9]+)?)?)\s*>\s*([A-Z0-9\-]+(?:-[0-9]+)?(?:,[A-Z0-9\-]+(?:-[0-9]+)?)*)\s*(?:<([^>]+)>)?\s*[:]?\s*(.*)$/si;
+
+            let match = ax25String.match(ax25Pattern);
+
+            if (match) {
+                
+                const sourceCallsignRaw = match[1] ? match[1].trim() : "";
+                const destCallsignRaw = match[2] ? match[2].trim() : "";
+                const sourceCallsign = parseAX25Callsign(sourceCallsignRaw.split(/\s+VIA\s+/i)[0]);
+                const destCallsign = parseAX25Callsign(destCallsignRaw.split(',')[0]);
+
+                const controlContent = match[3] ? match[3].trim() : null;
+                let infoPart = match[4] ? match[4].trim() : "";
+
+                const frameDetails = getFrameTypeAndExplanation(controlContent);
+                let protocol = null;
+                let pid = null;
+                let pidExplanation = null;
+
+                if (infoPart) {
+                    if (/NET.ROM/i.test(infoPart)) protocol = "NET/ROM";
+                    else if (/^ARP\s/i.test(infoPart)) protocol = "ARP";
+                    else if (/^IP\s/i.test(infoPart)) protocol = "IP";
+                    else if (frameDetails.type.includes("UI") && infoPart.startsWith(":")) {
+                        // APRS or simple text
+                    }
+                }
+                
+                if ((frameDetails.type.includes("UI") || (!controlContent && infoPart)) && !protocol) {
+                    pid = "0xF0 (No L3 / Text)";
+                    pidExplanation = "Typically No Layer 3 Protocol, Text, or APRS data.";
+                } else if (frameDetails.type.includes("I") && !protocol) {
+                    pid = "L3 Data (e.g. 0xCF, 0x06)";
+                    pidExplanation = "Layer 3 Data (e.g., X.25 PLP, NET/ROM, TCP/IP).";
+                }
+
+                return {
+                    source: sourceCallsign,
+                    destination: destCallsign,
+                    controlRaw: controlContent,
+                    frameType: frameDetails.type,
+                    frameTypeExplanation: frameDetails.explanation,
+                    controlDetails: frameDetails,
+                    pid: pid,
+                    pidExplanation: pidExplanation,
+                    protocol: protocol,
+                    info: infoPart,
+                    _sourceRaw: sourceCallsignRaw,
+                    _destRaw: destCallsignRaw 
+                };
+            } else {
+                return null; 
+            }
+        }
 
         // Helper to parse "HH:MM:SS" (UTC) and return a Date object
         function parseMessageTimestamp(timestampStr) {
             if (typeof timestampStr !== 'string' || !/^\d{2}:\d{2}:\d{2}$/.test(timestampStr)) {
-                // User's fix for regex was: !/^\d{2}:\d{2}:\d{2}$/
-                // console.log("Invalid timestamp format:", timestampStr, typeof timestampStr); // Keep user's console.log if intended for debugging
-                return null; // Invalid format
+                return null; 
             }
             const parts = timestampStr.split(':');
             const hours = parseInt(parts[0], 10);
             const minutes = parseInt(parts[1], 10);
             const seconds = parseInt(parts[2], 10);
 
-            const now = new Date(); // Current local date, to get current year/month/day in UTC
-            // Construct a Date object using UTC setters
+            const now = new Date(); 
             const msgUtcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes, seconds));
 
-            // Heuristic for messages from the previous UTC day
-            // If msgUtcDate is more than 1 hour in the future from current UTC time, assume it's from yesterday (UTC)
             if (msgUtcDate.getTime() > Date.now() + 60 * 60 * 1000) {
-                // console.log("msgDate (UTC) is in the future, adjusting to previous UTC day:", msgUtcDate); // Keep user's console.log
                 msgUtcDate.setUTCDate(msgUtcDate.getUTCDate() - 1);
             }
             return msgUtcDate;
@@ -69,11 +232,10 @@ const App = {
         function getMinuteKey(dateObj) {
             if (!(dateObj instanceof Date) || isNaN(dateObj)) return null;
             const keyDate = new Date(dateObj.getTime());
-            keyDate.setUTCSeconds(0, 0); // Normalize to the start of the minute
-            return keyDate.toISOString(); // e.g., "2023-10-27T14:35:00.000Z"
+            keyDate.setUTCSeconds(0, 0); 
+            return keyDate.toISOString(); 
         }
 
-        // Computed property to prepare data for graph rendering
         const displayedGraphData = computed(() => {
             return graphMinuteSlots.value.map(slotDate => {
                 const minuteKey = getMinuteKey(slotDate);
@@ -83,7 +245,7 @@ const App = {
                     minute: '2-digit',
                     hour12: false
                 });
-                return { label, count, minuteKey }; // minuteKey for debugging or future use
+                return { label, count, minuteKey }; 
             });
         });
 
@@ -92,13 +254,12 @@ const App = {
             const newSlots = [];
             for (let i = 59; i >= 0; i--) {
                 const slotDate = new Date(now.getTime() - i * 60 * 1000);
-                slotDate.setUTCSeconds(0, 0); // Align to the start of the minute
+                slotDate.setUTCSeconds(0, 0); 
                 newSlots.push(slotDate);
             }
             graphMinuteSlots.value = newSlots;
         }
 
-        // Function to populate messageCountsByMinute from existing logMessages (e.g., on load)
         function processHistoricalMessagesForGraph() {
             logMessages.value.forEach(msg => {
                 if (msg.utcDate) {
@@ -108,10 +269,9 @@ const App = {
                     }
                 }
             });
-            updateGraphSlots(); // Ensure slots are also up-to-date
+            updateGraphSlots(); 
         }
 
-        // Computed property for sorted TNC data
         const sortedTncData = computed(() => {
             return Object.keys(tncData)
                 .sort((a, b) => parseInt(a) - parseInt(b))
@@ -121,12 +281,10 @@ const App = {
                 }, {});
         });
 
-        // Computed property for sorted unique ports for display in checkboxes
         const sortedUniquePorts = computed(() => {
             return Array.from(uniquePorts.value).sort((a, b) => parseInt(a) - parseInt(b));
         });
         
-        // Watch for new ports and add them to visiblePorts by default
         watch(sortedUniquePorts, (newPorts, oldPorts) => {
             newPorts.forEach(port => {
                 if (!visiblePorts.value.includes(port)) {
@@ -149,14 +307,14 @@ const App = {
             if (graphUpdateQueue.value.length === 0) return;
 
             graphUpdateQueue.value.forEach(utcDate => {
-                if (utcDate) { // Ensure utcDate is valid
+                if (utcDate) { 
                     const minuteKey = getMinuteKey(utcDate);
                     if (minuteKey) {
                         messageCountsByMinute[minuteKey] = (messageCountsByMinute[minuteKey] || 0) + 1;
                     }
                 }
             });
-            graphUpdateQueue.value = []; // Clear the queue after processing
+            graphUpdateQueue.value = []; 
         }
 
         const scheduleGraphUpdate = createDebouncer(processGraphUpdateQueue, 100);
@@ -165,12 +323,12 @@ const App = {
             if (tncDataUpdateQueue.value.length === 0) return;
 
             tncDataUpdateQueue.value.forEach(data => {
-                tncData[data.portNum] = data.data; // Directly assign, reactivity handles the rest
+                tncData[data.portNum] = data.data; 
                 if (!uniquePorts.value.has(String(data.portNum))) {
                     uniquePorts.value.add(String(data.portNum));
                 }
             });
-            tncDataUpdateQueue.value = []; // Clear the queue after processing
+            tncDataUpdateQueue.value = []; 
         }
 
         const scheduleTncDataUpdate = createDebouncer(processTncDataUpdateQueue, 100);
@@ -179,7 +337,7 @@ const App = {
             if (logMessageQueue.value.length === 0) return;
 
             const messagesToAdd = logMessageQueue.value;
-            logMessages.value.push(...messagesToAdd); // Add all queued messages
+            logMessages.value.push(...messagesToAdd); 
 
             messagesToAdd.forEach(msg => {
                 if (msg.port && !uniquePorts.value.has(msg.port)) {
@@ -187,7 +345,7 @@ const App = {
                 }
             });
 
-            logMessageQueue.value = []; // Clear the queue
+            logMessageQueue.value = []; 
         }
 
         const scheduleLogMessageUpdate = createDebouncer(processLogMessageQueue, 50);
@@ -203,44 +361,47 @@ const App = {
                 try {
                     const data = JSON.parse(event.data);
                     if (data.type === 'log') {
-                        const msgObject = { ...data }; // Clone to avoid modifying original if it's reused
+                        const msgObject = { ...data }; 
                         msgObject.utcDate = parseMessageTimestamp(data.timestamp);
                         if (msgObject.utcDate) {
                             msgObject.displayTimestamp = msgObject.utcDate.toLocaleTimeString('en-US', { hour12: false });
-                            // Update graph data - queue for batched processing
-                            // const minuteKey = getMinuteKey(msgObject.utcDate);
-                            // if (minuteKey) {
-                            //     messageCountsByMinute[minuteKey] = (messageCountsByMinute[minuteKey] || 0) + 1;
-                            // }
                             graphUpdateQueue.value.push(msgObject.utcDate);
                             scheduleGraphUpdate();
                         } else {
-                            msgObject.displayTimestamp = data.timestamp; // Fallback to raw timestamp
+                            msgObject.displayTimestamp = data.timestamp; 
                         }
-                        // logMessages.value.push(msgObject);
-                        // if (data.port && !uniquePorts.value.has(data.port)) {
-                        //     uniquePorts.value.add(data.port);
-                        // }
+
+                        let stringToParseForAX25 = "";
+                        if (msgObject.route && msgObject.message) {
+                            if (msgObject.message.includes(">") && msgObject.message.match(/^[A-Z0-9\-]+(?:-[0-9]+)?\s*>/i)) {
+                                stringToParseForAX25 = htmlDecode(msgObject.message);
+                            } else {
+                                stringToParseForAX25 = htmlDecode(msgObject.route + " " + msgObject.message);
+                            }
+                        } else if (msgObject.message) { 
+                             stringToParseForAX25 = htmlDecode(msgObject.message);
+                        } else if (msgObject.raw) { 
+                            stringToParseForAX25 = htmlDecode(msgObject.raw);
+                        }
+                        
+                        if (stringToParseForAX25) {
+                            msgObject.ax25Info = parseAX25Message(stringToParseForAX25);
+                        }
+
                         logMessageQueue.value.push(msgObject);
                         scheduleLogMessageUpdate();
                     } else if (data.type === 'tnc_data') {
-                        // tncData[data.portNum] = data.data; // Directly assign, reactivity handles the rest
-                        //  if (!uniquePorts.value.has(String(data.portNum))) {
-                        //     uniquePorts.value.add(String(data.portNum));
-                        // }
                         tncDataUpdateQueue.value.push(data);
                         scheduleTncDataUpdate();
                     }
                 } catch (e) {
                     console.error("Error parsing incoming JSON data:", e, event.data);
-                    // Fallback for non-JSON messages if any are expected
                     logMessages.value.push({ type: 'log', raw: event.data, timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }) });
                 }
             };
 
             socket.onerror = (error) => {
                 console.error("WebSocket Error:", error);
-                // Add a message to the log about the error
                  logMessages.value.push({ 
                     type: 'log', 
                     raw: `WebSocket Error: ${error.message || 'Connection failed'}`,
@@ -257,7 +418,7 @@ const App = {
                     timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }), 
                     isWarning: true 
                 });
-                setTimeout(connectWebSocket, 5000); // Reconnect after 5 seconds
+                setTimeout(connectWebSocket, 5000); 
             };
         }
 
@@ -276,29 +437,73 @@ const App = {
                 });
         }
 
-        // Auto-scroll logic
         watch(logMessages, async () => {
             if (autoScrollEnabled.value) {
-                await nextTick(); // Wait for DOM update
-                const container = document.getElementById('output-container'); // Re-query in case it wasn't there before
+                await nextTick(); 
+                const container = document.getElementById('output-container'); 
                 if (container) {
                     container.scrollTop = container.scrollHeight;
                 }
             }
         }, { deep: true });
 
-        // Initial actions
         connectWebSocket();
         fetchVersion();
-        updateGraphSlots(); // Initial setup of graph slots
+        updateGraphSlots(); 
 
-        // Periodic timer to slide the graph window and update current minute
         setInterval(() => {
             updateGraphSlots();
-            // Optional: Prune very old entries from messageCountsByMinute here if it becomes an issue
-        }, 1000); // Update every second for a responsive current minute bar and smooth slide
+        }, 1000); 
 
-        return { // Expose to template
+        function showTooltip(msg, event) {
+            if (!ax25TooltipEnabled.value) {
+                tooltip.visible = false; // Ensure it's hidden if disabled
+                return; // Do not show tooltip if disabled
+            }
+
+            if (msg && msg.ax25Info && msg.ax25Info.source) { 
+                tooltip.data = { ...msg.ax25Info }; 
+                
+                if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+                    tooltip.x = event.clientX + 15;
+                    tooltip.y = event.clientY + 15;
+                } else {
+                    tooltip.x = 100; 
+                    tooltip.y = 100;
+                }
+
+                tooltip.visible = true; 
+
+                nextTick(() => { 
+                    const tooltipEl = document.getElementById('ax25-tooltip');
+                    if (tooltipEl) {
+                        const rect = tooltipEl.getBoundingClientRect();
+                        let adjustedX = tooltip.x;
+                        let adjustedY = tooltip.y;
+
+                        if (adjustedX + rect.width > window.innerWidth) {
+                            adjustedX = window.innerWidth - rect.width - 10;
+                        }
+                        if (adjustedY + rect.height > window.innerHeight) {
+                            adjustedY = window.innerHeight - rect.height - 10;
+                        }
+                        if (adjustedX < 0) adjustedX = 5; 
+                        if (adjustedY < 0) adjustedY = 5; 
+                        
+                        tooltip.x = adjustedX;
+                        tooltip.y = adjustedY;
+                    }
+                });
+            } else {
+                tooltip.visible = false; 
+            }
+        }
+
+        function hideTooltip() {
+            tooltip.visible = false;
+        }
+
+        return { 
             logMessages,
             tncData,
             autoScrollEnabled,
@@ -306,11 +511,15 @@ const App = {
             uniquePorts,
             visiblePorts,
             version,
+            ax25TooltipEnabled,
             sortedTncData,
             sortedUniquePorts,
             isHidden,
-            outputContainer, // For potential direct manipulation if needed, though id-based query is used now
-            displayedGraphData // New data for graph
+            outputContainer, 
+            displayedGraphData, 
+            tooltip,        
+            showTooltip,    
+            hideTooltip
         };
     }
 };

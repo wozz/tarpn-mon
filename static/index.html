@@ -19,7 +19,9 @@
                          isHidden(msg) ? 'hidden' : ''
                      ]"
                      :data-port="msg.port"
-                     :data-route="msg.route">
+                     :data-route="msg.route"
+                     @mouseover="showTooltip(msg, $event)"
+                     @mouseout="hideTooltip()">
                     <span class="time">{{ msg.displayTimestamp }}</span>&nbsp;
                     <template v-if="msg.raw">
                         <span class="raw-message">{{ msg.raw }}</span>
@@ -95,6 +97,8 @@
             <input type="checkbox" id="toggleAutoScroll" v-model="autoScrollEnabled" title="Enable or disable automatic scrolling of the log output. When enabled, the log will scroll to the newest message."><br/>
             <label for="toggleHideUSB" title="Hide messages that are routed from the TNC to the USB interface. Useful for focusing on over-the-air packets.">Hide TNC&gt;USB Packets:</label>
             <input type="checkbox" id="toggleHideUSB" v-model="hideUSBRoutes" title="Hide messages that are routed from the TNC to the USB interface. Useful for focusing on over-the-air packets."><br/>
+            <label for="toggleAX25Tooltip" title="Enable or disable the AX.25 packet details tooltip on hover.">Enable AX.25 Tooltip:</label>
+            <input type="checkbox" id="toggleAX25Tooltip" v-model="ax25TooltipEnabled" title="Enable or disable the AX.25 packet details tooltip on hover."><br/>
             
             <h4>Port Filters</h4>
             <div id="portFiltersContainer" class="port-checkbox-group">
@@ -109,6 +113,41 @@
         <footer>
             <span id="version-placeholder">Version: {{ version }}</span>
         </footer>
+
+    <!-- AX.25 Tooltip -->
+    <div id="ax25-tooltip" class="ax25-tooltip" v-show="tooltip.visible" :style="{ top: tooltip.y + 'px', left: tooltip.x + 'px' }">
+        <div v-if="tooltip.data && tooltip.data.source"> 
+            <h4>AX.25 Packet Details</h4>
+            <p>
+                <strong>From:</strong> {{ tooltip.data.source.call }}{{ tooltip.data.source.ssid ? '-' + tooltip.data.source.ssid : '' }}
+                <strong>To:</strong> {{ tooltip.data.destination.call }}{{ tooltip.data.destination.ssid ? '-' + tooltip.data.destination.ssid : '' }}
+            </p>
+            <p><strong>Frame Type:</strong> {{ tooltip.data.frameType }}</p>
+            <p v-if="tooltip.data.frameTypeExplanation"><em>{{ tooltip.data.frameTypeExplanation }}</em></p>
+
+            <template v-if="tooltip.data.controlRaw">
+                <p><strong>Control Field:</strong> <code>{{ tooltip.data.controlRaw }}</code></p>
+                <p v-if="tooltip.data.controlDetails && tooltip.data.controlDetails.detailsString"><em>Details: {{ tooltip.data.controlDetails.detailsString }}</em></p>
+            </template>
+            <template v-else>
+                <p><em>No standard control field present.</em></p>
+            </template>
+
+            <p v-if="tooltip.data.pid">
+                <strong>PID:</strong> {{ tooltip.data.pid }}
+                <em v-if="tooltip.data.pidExplanation"> ({{ tooltip.data.pidExplanation }})</em>
+            </p>
+            <p v-if="tooltip.data.protocol"><strong>L3 Protocol:</strong> {{ tooltip.data.protocol }}</p>
+            <div v-if="tooltip.data.info && tooltip.data.info.trim() !== '' && tooltip.data.info.trim() !== ':'">
+                <p><strong>Information:</strong></p>
+                <pre>{{ tooltip.data.info }}</pre>
+            </div>
+        </div>
+        <div v-else>
+            <!-- Fallback or placeholder if tooltip.data is not fully populated but tooltip is visible -->
+            <p>Parsing AX.25 details...</p>
+        </div>
+    </div>
     </div>
 
     <script src="/static/js/vue.global.js"></script>

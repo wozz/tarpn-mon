@@ -110,3 +110,61 @@ footer {
     width: 100%;
     color: #888;
 }
+
+/* AX.25 Tooltip Styles */
+.ax25-tooltip {
+    position: fixed;
+    background-color: #2c2c2c; /* Slightly lighter than body */
+    border: 1px solid #555;
+    padding: 12px;
+    border-radius: 6px;
+    box-shadow: 3px 3px 8px rgba(0,0,0,0.6);
+    z-index: 1000;
+    font-family: Arial, sans-serif; /* More readable font for tooltip */
+    font-size: 0.85em;
+    color: #e0e0e0;
+    max-width: 450px;
+    pointer-events: none; /* So it doesn't interfere with mouseout on the underlying log line */
+    line-height: 1.4;
+}
+
+.ax25-tooltip h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    color: #ffffff;
+    font-size: 1.1em;
+    border-bottom: 1px solid #444;
+    padding-bottom: 5px;
+}
+
+.ax25-tooltip p {
+    margin: 6px 0;
+}
+
+.ax25-tooltip strong {
+    color: #ffffff;
+}
+
+.ax25-tooltip code {
+    background-color: #1e1e1e;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: "Courier New", Courier, monospace;
+    color: #c8f0ff;
+}
+
+.ax25-tooltip em {
+    color: #aaa;
+}
+
+.ax25-tooltip pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    background-color: #1e1e1e;
+    padding: 8px;
+    border-radius: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+    border: 1px solid #404040;
+    color: #d0d0d0;
+}
