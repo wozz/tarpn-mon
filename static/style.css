@@ -124,7 +124,7 @@ footer {
     font-size: 0.85em;
     color: #e0e0e0;
     max-width: 450px;
-    pointer-events: none; /* So it doesn't interfere with mouseout on the underlying log line */
+    /* pointer-events: none; */ /* Removed to allow text selection */
     line-height: 1.4;
 }
 

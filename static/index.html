@@ -21,7 +21,8 @@
                      :data-port="msg.port"
                      :data-route="msg.route"
                      @mouseover="showTooltip(msg, $event)"
-                     @mouseout="hideTooltip()">
+                     @mouseout="hideTooltip()"
+                     @click="handleLogLineClick(msg, $event)">
                     <span class="time">{{ msg.displayTimestamp }}</span>&nbsp;
                     <template v-if="msg.raw">
                         <span class="raw-message">{{ msg.raw }}</span>
@@ -115,7 +116,7 @@
         </footer>
 
     <!-- AX.25 Tooltip -->
-    <div id="ax25-tooltip" class="ax25-tooltip" v-show="tooltip.visible" :style="{ top: tooltip.y + 'px', left: tooltip.x + 'px' }">
+    <div id="ax25-tooltip" class="ax25-tooltip" v-show="tooltip.visible" :style="{ top: tooltip.y + 'px', left: tooltip.x + 'px' }" @click.stop>
         <div v-if="tooltip.data && tooltip.data.source"> 
             <h4>AX.25 Packet Details</h4>
             <p>

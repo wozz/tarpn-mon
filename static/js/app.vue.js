@@ -17,6 +17,7 @@ const App = {
         const visiblePorts = ref([]); // Array of port numbers that are checked (visible)
         const version = ref("N/A");
         const ax25TooltipEnabled = ref(false); // New setting for AX.25 tooltip, off by default
+        const tooltipFrozen = ref(false); // For sticky tooltip
         const outputContainer = ref(null); // For autoscroll
         const messageCountsByMinute = reactive({}); // Key: UTC minute string, Value: count
         const graphMinuteSlots = ref([]); // Array of Date objects for the last 60 minutes (slots)
@@ -455,10 +456,97 @@ const App = {
             updateGraphSlots();
         }, 1000); 
 
-        function showTooltip(msg, event) {
+        // Moved globalClickHandlerForUnfreeze and unfreezeTooltip to be defined before handleLogLineClick uses them
+        let globalClickHandlerForUnfreeze = null; // Holder for the bound function
+
+        function unfreezeTooltip() {
+            if (tooltipFrozen.value) {
+                tooltipFrozen.value = false;
+                tooltip.visible = false; 
+                if (globalClickHandlerForUnfreeze) {
+                    document.removeEventListener('click', globalClickHandlerForUnfreeze, true);
+                }
+            }
+        }
+
+        globalClickHandlerForUnfreeze = function(event) {
+            if (!tooltipFrozen.value) return;
+
+            const tooltipEl = document.getElementById('ax25-tooltip');
+            if (tooltipEl && tooltipEl.contains(event.target)) {
+                return; // Click was inside the tooltip, do nothing.
+            }
+            unfreezeTooltip();
+        }.bind(this); // Bind 'this' if necessary, though in setup scope it might not be an issue unless it's unbound later
+
+
+        watch(ax25TooltipEnabled, (newValue) => {
+            if (!newValue && tooltipFrozen.value) {
+                unfreezeTooltip();
+            }
+        });
+
+        function handleLogLineClick(msg, event) {
             if (!ax25TooltipEnabled.value) {
-                tooltip.visible = false; // Ensure it's hidden if disabled
-                return; // Do not show tooltip if disabled
+                // If the main toggle is off, ensure any frozen tooltip is cleared
+                if (tooltipFrozen.value) {
+                    unfreezeTooltip();
+                }
+                return;
+            }
+
+            // If a tooltip is already frozen, a click on any log line will first unfreeze it.
+            // Then, we'll proceed to freeze the newly clicked line's tooltip if it's valid.
+            if (tooltipFrozen.value) {
+                // Removed reClickedSameFrozenMessage logic for simplification.
+                // Any click on a log line when a tooltip is frozen will unfreeze the current one.
+                unfreezeTooltip();
+            }
+
+            // Attempt to freeze this line's tooltip
+            if (msg && msg.ax25Info && msg.ax25Info.source) {
+                tooltip.data = { ...msg.ax25Info };
+                if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+                    tooltip.x = event.clientX + 15;
+                    tooltip.y = event.clientY + 15;
+                } else {
+                    tooltip.x = 100; 
+                    tooltip.y = 100;
+                }
+                
+                tooltip.visible = true; // Make it visible before nextTick for measurement
+                tooltipFrozen.value = true; // Mark as frozen
+
+                nextTick(() => { 
+                    const tooltipEl = document.getElementById('ax25-tooltip');
+                    if (tooltipEl) {
+                        const rect = tooltipEl.getBoundingClientRect();
+                        let adjustedX = tooltip.x;
+                        let adjustedY = tooltip.y;
+
+                        if (adjustedX + rect.width > window.innerWidth) {
+                            adjustedX = window.innerWidth - rect.width - 10;
+                        }
+                        if (adjustedY + rect.height > window.innerHeight) {
+                            adjustedY = window.innerHeight - rect.height - 10;
+                        }
+                        if (adjustedX < 0) adjustedX = 5; 
+                        if (adjustedY < 0) adjustedY = 5; 
+                        
+                        tooltip.x = adjustedX;
+                        tooltip.y = adjustedY;
+                    }
+                });
+                document.addEventListener('click', globalClickHandlerForUnfreeze, true);
+            } else {
+                // If no valid data on click, ensure any previous freeze is cleared.
+                unfreezeTooltip();
+            }
+        }
+
+        function showTooltip(msg, event) {
+            if (!ax25TooltipEnabled.value || tooltipFrozen.value) {
+                return; 
             }
 
             if (msg && msg.ax25Info && msg.ax25Info.source) { 
@@ -500,6 +588,9 @@ const App = {
         }
 
         function hideTooltip() {
+            if (!ax25TooltipEnabled.value || tooltipFrozen.value) {
+                return;
+            }
             tooltip.visible = false;
         }
 
@@ -519,7 +610,8 @@ const App = {
             displayedGraphData, 
             tooltip,        
             showTooltip,    
-            hideTooltip
+            hideTooltip,
+            handleLogLineClick
         };
     }
 };
