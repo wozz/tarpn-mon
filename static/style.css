@@ -1,5 +1,5 @@
 body {
-  font-family: monospace;
+  font-family: "Courier New", Courier, monospace;
   background-color: #222;
   color: #eee;
   flex-direction: column;

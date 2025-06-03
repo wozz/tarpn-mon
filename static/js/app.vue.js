@@ -21,13 +21,10 @@ const App = {
         const graphMinuteSlots = ref([]); // Array of Date objects for the last 60 minutes (slots)
 
         const graphUpdateQueue = ref([]); // Stores utcDate objects of new messages for graph processing
-        let graphUpdateDebounceTimer = null;
 
         const tncDataUpdateQueue = ref([]); // Stores incoming TNC data objects for batch processing
-        let tncDataUpdateDebounceTimer = null;
 
         const logMessageQueue = ref([]); // Stores incoming log message objects for batch processing
-        let logMessageUpdateDebounceTimer = null;
 
         // Helper to parse "HH:MM:SS" (UTC) and return a Date object
         function parseMessageTimestamp(timestampStr) {
@@ -52,6 +49,20 @@ const App = {
                 msgUtcDate.setUTCDate(msgUtcDate.getUTCDate() - 1);
             }
             return msgUtcDate;
+        }
+
+        // Generic Debouncer
+        function createDebouncer(processFn, delay) {
+            let timer = null;
+            return (...args) => {
+                if (timer) {
+                    clearTimeout(timer);
+                }
+                timer = setTimeout(() => {
+                    processFn(...args);
+                    timer = null;
+                }, delay);
+            };
         }
 
         // Helper to get a standardized UTC minute key from a Date object
@@ -148,15 +159,7 @@ const App = {
             graphUpdateQueue.value = []; // Clear the queue after processing
         }
 
-        function scheduleGraphUpdate() {
-            if (graphUpdateDebounceTimer) {
-                clearTimeout(graphUpdateDebounceTimer);
-            }
-            graphUpdateDebounceTimer = setTimeout(() => {
-                processGraphUpdateQueue();
-                graphUpdateDebounceTimer = null;
-            }, 100); // Debounce updates by 100ms
-        }
+        const scheduleGraphUpdate = createDebouncer(processGraphUpdateQueue, 100);
 
         function processTncDataUpdateQueue() {
             if (tncDataUpdateQueue.value.length === 0) return;
@@ -170,15 +173,7 @@ const App = {
             tncDataUpdateQueue.value = []; // Clear the queue after processing
         }
 
-        function scheduleTncDataUpdate() {
-            if (tncDataUpdateDebounceTimer) {
-                clearTimeout(tncDataUpdateDebounceTimer);
-            }
-            tncDataUpdateDebounceTimer = setTimeout(() => {
-                processTncDataUpdateQueue();
-                tncDataUpdateDebounceTimer = null;
-            }, 100); // Debounce updates by 100ms
-        }
+        const scheduleTncDataUpdate = createDebouncer(processTncDataUpdateQueue, 100);
 
         function processLogMessageQueue() {
             if (logMessageQueue.value.length === 0) return;
@@ -195,15 +190,7 @@ const App = {
             logMessageQueue.value = []; // Clear the queue
         }
 
-        function scheduleLogMessageUpdate() {
-            if (logMessageUpdateDebounceTimer) {
-                clearTimeout(logMessageUpdateDebounceTimer);
-            }
-            logMessageUpdateDebounceTimer = setTimeout(() => {
-                processLogMessageQueue();
-                logMessageUpdateDebounceTimer = null;
-            }, 50); // Debounce log updates by 50ms
-        }
+        const scheduleLogMessageUpdate = createDebouncer(processLogMessageQueue, 50);
 
         function connectWebSocket() {
             const socket = new WebSocket(`ws://${window.location.host}/ws`);
