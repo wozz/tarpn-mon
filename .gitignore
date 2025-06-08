@@ -4,3 +4,5 @@ log/
 # Node.js
 node_modules/
 static/js/dist/
+
+coverage/

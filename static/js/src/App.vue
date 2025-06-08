@@ -7,13 +7,12 @@
            :class="[
                msg.prefix ? 'prefix-' + msg.prefix : '',
                msg.port ? 'port-' + msg.port : '',
-               isHidden(msg) ? 'hidden' : ''
+               isHidden(msg) ? 'hidden' : '',
+               { 'highlight': index === selectedLogIndex }
            ]"
            :data-port="msg.port"
            :data-route="msg.route"
-           @mouseover="showTooltip(msg, $event)"
-           @mouseout="hideTooltip()"
-           @click="handleLogLineClick(msg, $event)">
+           @click="handleLogLineClick(msg, index, $event)">
         <span class="time">{{ msg.displayTimestamp }}</span>&nbsp;
         <template v-if="msg.raw">
           <span class="raw-message">{{ msg.raw }}</span>
@@ -88,8 +87,6 @@
     <input type="checkbox" id="toggleAutoScroll" v-model="autoScrollEnabled" title="Enable or disable automatic scrolling of the log output. When enabled, the log will scroll to the newest message."><br/>
     <label for="toggleHideUSB" title="Hide messages that are routed from the TNC to the USB interface. Useful for focusing on over-the-air packets.">Hide TNC&gt;USB Packets:</label>
     <input type="checkbox" id="toggleHideUSB" v-model="hideUSBRoutes" title="Hide messages that are routed from the TNC to the USB interface. Useful for focusing on over-the-air packets."><br/>
-    <label for="toggleAX25Tooltip" title="Enable or disable the AX.25 packet details tooltip on hover.">Enable AX.25 Tooltip:</label>
-    <input type="checkbox" id="toggleAX25Tooltip" v-model="ax25TooltipEnabled" title="Enable or disable the AX.25 packet details tooltip on hover."><br/>
 
     <h4>Port Filters</h4>
     <div id="portFiltersContainer" class="port-checkbox-group">
@@ -138,6 +135,7 @@
       <!-- Fallback or placeholder if tooltip.data is not fully populated but tooltip is visible -->
       <p>Parsing AX.25 details...</p>
     </div>
+    <button @click="closeTooltip" class="tooltip-close-button">✖</button>
   </div>
 </template>
 
@@ -154,8 +152,8 @@ const hideUSBRoutes = ref(false);
 const uniquePorts = ref(new Set());
 const visiblePorts = ref([]); // Array of port numbers that are checked (visible)
 const version = ref("N/A");
-const ax25TooltipEnabled = ref(false); // New setting for AX.25 tooltip, off by default
-const tooltipFrozen = ref(false); // For sticky tooltip
+const tooltipVisible = ref(false); // Indicates if any tooltip is currently shown
+const selectedLogIndex = ref(null); // To track the highlighted log line's index
 const outputContainerRef = ref(null); // For autoscroll, changed name to avoid conflict with global
 const messageCountsByMinute = reactive({}); // Key: UTC minute string, Value: count
 const graphMinuteSlots = ref([]); // Array of Date objects for the last 60 minutes (slots)
@@ -376,10 +374,11 @@ watch(logMessages, async () => {
 
 let globalClickHandlerForUnfreeze = null;
 
-function unfreezeTooltip() {
-    if (tooltipFrozen.value) {
-        tooltipFrozen.value = false;
+function closeTooltip() { // Renamed from unfreezeTooltip and simplified
+    if (tooltip.visible) {
         tooltip.visible = false;
+        tooltipVisible.value = false; // Track general visibility
+        selectedLogIndex.value = null; // Clear highlight
         if (globalClickHandlerForUnfreeze) {
             document.removeEventListener('click', globalClickHandlerForUnfreeze, true);
             globalClickHandlerForUnfreeze = null;
@@ -388,30 +387,21 @@ function unfreezeTooltip() {
 }
 
 globalClickHandlerForUnfreeze = function(event) {
-    if (!tooltipFrozen.value) return;
+    if (!tooltip.visible) return; // Check general visibility
     const tooltipEl = document.getElementById('ax25-tooltip');
     if (tooltipEl && tooltipEl.contains(event.target)) {
-        return;
+        return; // Click was inside the tooltip, do nothing
     }
-    unfreezeTooltip();
+    closeTooltip(); // Click was outside, close it
 };
 
-watch(ax25TooltipEnabled, (newValue) => {
-    if (!newValue && tooltipFrozen.value) {
-        unfreezeTooltip();
+function handleLogLineClick(msg, index, event) { // Added index parameter
+    // If a tooltip is already visible (potentially for another line), close it first.
+    // This also clears selectedLogIndex.
+    if (tooltip.visible) {
+        closeTooltip();
     }
-});
 
-function handleLogLineClick(msg, event) {
-    if (!ax25TooltipEnabled.value) {
-        if (tooltipFrozen.value) {
-            unfreezeTooltip();
-        }
-        return;
-    }
-    if (tooltipFrozen.value) {
-        unfreezeTooltip();
-    }
     if (msg && msg.ax25Info && msg.ax25Info.source) {
         tooltip.data = { ...msg.ax25Info };
         if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
@@ -422,7 +412,9 @@ function handleLogLineClick(msg, event) {
             tooltip.y = 100;
         }
         tooltip.visible = true;
-        tooltipFrozen.value = true;
+        tooltipVisible.value = true; // Mark that a tooltip is now visible
+        selectedLogIndex.value = index; // Set highlight for the current line
+
         nextTick(() => {
             const tooltipEl = document.getElementById('ax25-tooltip');
             if (tooltipEl) {
@@ -441,56 +433,12 @@ function handleLogLineClick(msg, event) {
                 tooltip.y = adjustedY;
             }
         });
-        if (globalClickHandlerForUnfreeze) {
-             document.addEventListener('click', globalClickHandlerForUnfreeze, true);
-        }
+        // Always (re-)add the global click listener when a tooltip is shown
+        document.removeEventListener('click', globalClickHandlerForUnfreeze, true); // Remove first to avoid duplicates
+        document.addEventListener('click', globalClickHandlerForUnfreeze, true);
     } else {
-        unfreezeTooltip();
+        closeTooltip(); // If no valid data, ensure it's closed (this also clears highlight)
     }
-}
-
-function showTooltip(msg, event) {
-    if (!ax25TooltipEnabled.value || tooltipFrozen.value) {
-        return;
-    }
-    if (msg && msg.ax25Info && msg.ax25Info.source) {
-        tooltip.data = { ...msg.ax25Info };
-        if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
-            tooltip.x = event.clientX + 15;
-            tooltip.y = event.clientY + 15;
-        } else {
-            tooltip.x = 100;
-            tooltip.y = 100;
-        }
-        tooltip.visible = true;
-        nextTick(() => {
-            const tooltipEl = document.getElementById('ax25-tooltip');
-            if (tooltipEl) {
-                const rect = tooltipEl.getBoundingClientRect();
-                let adjustedX = tooltip.x;
-                let adjustedY = tooltip.y;
-                if (adjustedX + rect.width > window.innerWidth) {
-                    adjustedX = window.innerWidth - rect.width - 10;
-                }
-                if (adjustedY + rect.height > window.innerHeight) {
-                    adjustedY = window.innerHeight - rect.height - 10;
-                }
-                if (adjustedX < 0) adjustedX = 5;
-                if (adjustedY < 0) adjustedY = 5;
-                tooltip.x = adjustedX;
-                tooltip.y = adjustedY;
-            }
-        });
-    } else {
-        tooltip.visible = false;
-    }
-}
-
-function hideTooltip() {
-    if (!ax25TooltipEnabled.value || tooltipFrozen.value) {
-        return;
-    }
-    tooltip.visible = false;
 }
 
 onMounted(() => {
@@ -565,5 +513,22 @@ onMounted(() => {
     overflow-y: auto;
     border: 1px solid #404040;
     color: #d0d0d0;
+}
+
+/* Style for the new close button */
+.tooltip-close-button {
+    position: absolute;
+    top: 5px;
+    right: 8px;
+    background: none;
+    border: none;
+    font-size: 1.2em;
+    color: #aaa;
+    cursor: pointer;
+    padding: 2px;
+    line-height: 1;
+}
+.tooltip-close-button:hover {
+    color: #fff;
 }
 </style> 
