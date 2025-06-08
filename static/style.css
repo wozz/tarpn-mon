@@ -1,16 +1,27 @@
 body {
-  font-family: monospace;
+  font-family: "Courier New", Courier, monospace;
   background-color: #222;
   color: #eee;
+  flex-direction: column;
+  min-height: 100vh;
+  margin: 0;
+  height: 100%;
+  display: flex;
 }
 
-#output {
-  white-space: pre-wrap;
-  height: 500px;
+#output-container {
+  white-space: pre-wrap; /* This might be redundant if individual lines handle it, but can be a fallback */
   overflow-y: scroll;
   border: 1px solid #666;
   padding: 10px;
-  background-color: #000;
+  background-color: #000; /* Dark background for the log area */
+  margin-bottom: 20px; /* Add some space below the log output */
+  height: 600px;
+}
+
+main {
+  flex-grow: 1;
+  padding: 20px;
 }
 
 table {
@@ -22,6 +33,12 @@ th, td {
   text-align: left;
   padding: 8px;
   border: 1px solid #666;
+}
+
+footer {
+  padding: 10px 0;
+  text-align: center;
+  margin-top: 30px;
 }
 
 .highlight {
@@ -45,3 +62,53 @@ th, td {
 .hidden {
   display: none;
 }
+
+.message-content {
+  white-space: pre-wrap;
+}
+
+.raw-message {
+  white-space: pre-wrap; /* Ensure raw messages also preserve whitespace */
+}
+
+.graph-container {
+    display: flex;
+    align-items: flex-end; /* Align bars to the bottom */
+    justify-content: space-around; /* Distribute space around items */
+    height: 120px; /* Fixed height for the graph area */
+    background-color: #111; /* Slightly lighter than output container for distinction */
+    border: 1px solid #666;
+    padding: 10px;
+    margin-bottom: 20px;
+    overflow-x: auto; /* Allow horizontal scrolling if too many bars */
+    overflow-y: hidden;
+}
+
+.graph-bar-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 2px; /* Spacing between bars */
+}
+
+.graph-bar {
+    width: 10px; /* Width of each bar */
+    background-color: #4CAF50; /* Green color for bars */
+    transition: height 0.3s ease; /* Smooth transition for height changes */
+}
+
+.graph-label {
+    font-size: 0.7em;
+    color: #ccc;
+    margin-top: 4px;
+}
+
+.empty-graph-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    color: #888;
+}
+
+/* AX.25 Tooltip Styles were here - moved to App.vue */

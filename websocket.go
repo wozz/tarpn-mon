@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -27,7 +28,6 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer wc.kill()
 
-	// Add the new client to the list of connected clients
 	clients[wc] = true
 
 	history := dataBuffer.getAll()
@@ -39,25 +39,29 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for {
-		// Handle incoming messages from the client (if any)
 		_, _, err := conn.ReadMessage()
 		if err != nil {
-			log.Println(err)
+			log.Printf("WebSocket read error: %v", err)
 			break
 		}
-		// You can add logic here to process commands from the web client, if needed.
 	}
 
-	// Remove the client from the list when the connection is closed
 	delete(clients, wc)
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	content, _ := static.ReadFile("static/index.html")
+	content, err := static.ReadFile("static/index.html")
+	if err != nil {
+		log.Printf("Error reading index.html: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(content)
 }
 
 func versionHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(Version))
 }
 
@@ -65,7 +69,14 @@ func setupRoutes() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/ws", websocketHandler)
 	http.HandleFunc("/version", versionHandler)
-	http.Handle("/static/", http.FileServer(http.FS(static)))
+
+	// Create a file server for the 'static' directory within the embedded FS.
+	// The 'static' variable (embed.FS) is defined in main.go.
+	staticFS, err := fs.Sub(static, "static")
+	if err != nil {
+		log.Fatalf("failed to create sub FS for static assets: %v", err)
+	}
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 }
 
 type websocketConn struct {

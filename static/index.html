@@ -1,53 +1,15 @@
-
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>TARPN Monitor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TARPN Monitor (Vue)</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <h1>TARPN Monitor</h1>
-    <pre id="output"></pre>
-
-    <h2>TNC Data</h2>
-    <table id="tncDataTable">
-        <thead>
-            <tr>
-                <th>Port Num</th>
-                <th>Firmware Version</th>
-                <th>Kaup8R</th>
-                <th>Uptime</th>
-                <th>Board ID</th>
-                <th>Switch Positions</th>
-                <th>Config Mode</th>
-                <th>AX.25 Received Packets</th>
-                <th>IL2P Correctable Packets</th>
-                <th>IL2P Uncorrectable Packets</th>
-                <th>Transmit Packets</th>
-                <th>Preamble Word Count</th>
-                <th>Main Loop Cycle Count</th>
-                <th>PTT On Time</th>
-                <th>DCD On Time</th>
-                <th>Received Data Bytes</th>
-                <th>Transmit Data Bytes</th>
-                <th>FEC Bytes Corrected</th>
-            </tr>
-        </thead>
-        <tbody id="tncDataBody">
-        </tbody>
-    </table>
-
-    <h3>Settings</h3>
-    <label for="toggleAutoScroll">Auto-scroll:</label>
-    <input type="checkbox" id="toggleAutoScroll" checked><br/>
-    <label for="toggleHideUSB">Hide USB Packets:</label>
-    <input type="checkbox" id="toggleHideUSB"><br/>
-    <h4>Port Filters</h4>
-    <div id=portFiltersContainer class="port-checkbox-group">
-      No ports detected yet.
+    <div id="app">
+        <!-- Vue app will be mounted here by static/js/dist/main.js -->
     </div>
-
-    <script src="/static/app.js"></script>
+    <script src="/static/js/dist/main.js"></script>
 </body>
 </html>
