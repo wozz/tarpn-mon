@@ -33,7 +33,9 @@ const (
 
 var (
 	callsign    string
+	password    string
 	hostname    string
+	targetPort  int
 	numPorts    int
 	bufferSize  int
 	debugInfo   bool
@@ -91,9 +93,9 @@ func connectWithRetry(ctx context.Context) (net.Conn, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			conn, err := net.Dial("tcp", fmt.Sprintf("%s:8011", hostname))
+			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", hostname, targetPort))
 			if err == nil {
-				log.Printf("Successfully connected to %s:8011", hostname)
+				log.Printf("Successfully connected to %s:%d", hostname, targetPort)
 				return conn, nil
 			}
 			log.Printf("Connection failed: %v, retrying in %v", err, backoff)
@@ -116,8 +118,8 @@ func initializeConnection(conn net.Conn) error {
 	}
 	time.Sleep(time.Second)
 
-	if _, err := conn.Write([]byte("p\r")); err != nil {
-		return fmt.Errorf("failed to send p command: %v", err)
+	if _, err := conn.Write([]byte(fmt.Sprintf("%s\r", password))); err != nil {
+		return fmt.Errorf("failed to send password: %v", err)
 	}
 
 	if _, err := conn.Write([]byte("BPQTERMTCP\r")); err != nil {
@@ -191,10 +193,11 @@ func handleConnection(ctx context.Context, conn net.Conn) error {
 				if err != nil {
 					return fmt.Errorf("init error: %v", err)
 				}
-				if len(c) != 4 || c[:2] != "\xff\xff" {
+				if len(c) < 4 || c[:2] != "\xff\xff" {
 					return fmt.Errorf("unexpected init string")
 				}
-				numPortsVal, err := strconv.Atoi(string(c[2]))
+				c = strings.TrimSuffix(c, "|")
+				numPortsVal, err := strconv.Atoi(string(c[2:]))
 				if err != nil {
 					return fmt.Errorf("invalid port number: %v", err)
 				}
@@ -284,7 +287,9 @@ func handleConnection(ctx context.Context, conn net.Conn) error {
 
 func main() {
 	flag.StringVar(&callsign, "call", defaultCallsign, "callsign to use as pw for telnet connection to node")
+	flag.StringVar(&password, "password", "p", "password to use for connection to node")
 	flag.StringVar(&hostname, "host", "localhost", "hostname to connect to")
+	flag.IntVar(&targetPort, "target-port", 8011, "target port to connect to on the host")
 	flag.IntVar(&numPorts, "ports", 12, "number of ports to monitor")
 	flag.IntVar(&bufferSize, "buffer-size", 5000, "number of lines to store in the memory buffer")
 	flag.BoolVar(&enableConsoleOutput, "console-out", false, "emit lines from monitor to console")
