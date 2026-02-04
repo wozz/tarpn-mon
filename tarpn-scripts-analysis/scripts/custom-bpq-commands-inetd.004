@@ -1,0 +1,7 @@
+### calls_for_BPQ_custom_commands-004
+trr     stream  tcp     nowait  root    /usr/local/sbin/trr.sh
+linux   stream  tcp     nowait  root    /usr/local/sbin/linux.sh
+tchat   stream  tcp     nowait  root    /usr/local/sbin/tchat
+tinfo   stream  tcp     nowait  root    /usr/local/sbin/tinfo.sh
+linktest stream tcp     nowait  root    /usr/local/sbin/node_calls_linktest.sh
+

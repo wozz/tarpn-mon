@@ -1,0 +1,40 @@
+# tarpn-chat configuration example
+#
+# This file configures the TARPN chat server (NetROM mode).
+# Copy to /opt/tarpn-chat/config.toml and edit as needed.
+
+[node]
+# Your chat node callsign (typically your main call + SSID, e.g., -9)
+call = "N0CALL-9"
+
+# Your chat node alias (6 chars max, shown in chat network)
+alias = "N0CHAT"
+
+[netrom]
+# LinBPQ's NETROMPORT address (tarpn-chat connects TO LinBPQ)
+linbpq = "127.0.0.1:63119"
+
+# L4 parameters (optional - defaults are usually fine)
+# window = 4          # Max unacked frames
+# timeout = 900       # Session inactivity timeout in seconds (15 min)
+# t1 = 60             # Retransmission timeout in seconds
+
+# Client API for local WebSocket clients (tarpn-mon backend)
+[client]
+# Port for WebSocket client connections
+port = 8513
+
+# Bind address for client API
+bind = "127.0.0.1"
+
+# Maximum number of local clients
+max_clients = 10
+
+# Peer chat nodes we connect to via L4 (outbound connections)
+# These are other tarpn-chat nodes that we initiate connections to
+#
+# [[peers]]
+# call = "REMOTE-9"
+# alias = "RMTCHT"
+# auto_reconnect = true
+# reconnect_delay = 30

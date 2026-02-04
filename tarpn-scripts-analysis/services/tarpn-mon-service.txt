@@ -1,0 +1,11 @@
+[Unit]
+Description=TARPN MON background service  see /var/log/tarpn_mon.log
+
+[Service]
+ExecStart=/usr/local/sbin/tarpnmon-runner.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

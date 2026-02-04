@@ -1,0 +1,10 @@
+# Cross.toml - Configuration for cross-rs
+# https://github.com/cross-rs/cross
+
+[build]
+# Build scripts run on the host to avoid glibc version issues
+default-target = "armv7-unknown-linux-musleabihf"
+
+[target.armv7-unknown-linux-musleabihf]
+# Use a more recent image with updated toolchain
+image = "ghcr.io/cross-rs/armv7-unknown-linux-musleabihf:main"
