@@ -14,8 +14,7 @@ Key characteristics:
 
 ## Repository
 
-- **GitHub (origin)**: https://github.com/wozz/tarpn-mon.git
-- **Gitea (gitea)**: git@git.ghost.fish:wozz/tarpn-mon.git
+- **GitHub**: https://github.com/wozz/tarpn-mon.git
 - **Branches**: `main` (stable), `react-native` (active development)
 
 ## This Repository: tarpn-terminal

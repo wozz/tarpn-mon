@@ -472,7 +472,7 @@ install_tarpn_mon() {
         cat > /etc/systemd/system/tarpn-mon.service << EOF
 [Unit]
 Description=TARPN Enhanced Monitor
-Documentation=https://github.com/${GITHUB_REPO}
+Documentation=https://github.com/wozz/tarpn-mon
 After=network.target
 
 [Service]
@@ -731,7 +731,7 @@ EOF
         cat > /etc/systemd/system/tarpn-chat.service << EOF
 [Unit]
 Description=TARPN Chat Service
-Documentation=https://github.com/${GITHUB_REPO}
+Documentation=https://github.com/wozz/tarpn-mon
 After=network.target
 
 [Service]
