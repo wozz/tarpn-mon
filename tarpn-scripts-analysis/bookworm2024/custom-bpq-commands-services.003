@@ -1,0 +1,11 @@
+#### custom-bpq-commands-services-003
+trr        63000/tcp       #BPQ application - shows routes table with performance data from each neighbor
+linux      63001/tcp       #bpq application - provides menu for connecting station to chose linux applications to execute
+tchat      63002/tcp       #bpq application - replacement for BPQCHAT
+tinfo      63003/tcp       #bpq application - generates INFO output to help diagnose remote node
+linktest   63004/tcp       #bpq application - Sends 100 packets out the specified port
+latlon     63005/tcp       #bpq application -
+cmd7       63006/tcp       #bpq application -  7th asperational custom command
+cmd8       63007/tcp       #bpq application -  8th asperational custom command
+cmd9       63008/tcp       #bpq application -  9th asperational custom command
+cmd10      63009/tcp       #bpq application - 20th asperational custom command

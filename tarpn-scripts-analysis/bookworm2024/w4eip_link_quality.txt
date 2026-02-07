@@ -1,0 +1,323 @@
+#!/usr/bin/perl
+##
+##
+my ($EPOCH, $PORT,  $NEIGHBOR_CALL, $LOCAL_UP_DOWN, $LOCAL_TRANS_COUNT, $LOCAL_RETRY_COUNT, $LOCAL__BUFFER_WAIT, $NEIGHBOR_TRANS_COUNT, $NEIGHBOR_RETRY_COUNT);
+my ($NULL1, $NULL2);
+#my @PORTS = (1,3,4,5,6);
+#my $NPORTS = 5 ;
+my $PACKET_CNT = 60;
+my $TAIL_LINES = 50;
+my $VERSION = "Version 9.1t -- 01-08-2023";
+#
+#
+if ($ARGV[0] != 0) {
+$PACKET_CNT = $ARGV[0];
+print "Override default packet count: $PACKET_CNT \n";
+}
+#
+#  Issue a bash tail command to get 600 lines from tarpn_home_linkquality.dat
+
+`tail -n $TAIL_LINES /usr/local/etc/tarpn_home_linkquality.dat  > /tmp/tarpn/tarpn_home_linkquality.dat`;
+#
+# cut, grep, and sort the ports from the linkquality file to get the number of ACTIVE ports over the last 24 hours.. the port
+# get the number of configured ports from the node.ini file.  This will allow a check that all configured ports are active.
+#
+#  Find the active ports in the linkquality data stream
+#
+`cut -f 2 -d "," /tmp/tarpn/tarpn_home_linkquality.dat | sort -u  >  /tmp/tarpn/ports.dat`;
+#
+#	Find the number of ports
+#
+`ls /tmp/tarpn/tnpa  | grep npa_port | cut -b 10> /tmp/tarpn/ini-ports.dat`;
+#
+#  Use the last 100 lines that were tailed from the
+#
+open STATS,    "</tmp/tarpn/tarpn_home_linkquality.dat";
+open PIPORTS,  "</tmp/tarpn/ports.dat";
+open INIPORTS,  "</tmp/tarpn/ini-ports.dat";
+
+#
+# Read and count the number of active ports.
+#
+
+print "\ntrr $VERSION \n";
+
+$IP = 0;
+while (<PIPORTS>) {
+#chomp (@PORTS = $_);
+$PORTS[$IP] = $_;
+$IP++;
+$NPORTS++;
+}
+$IPI = 0;
+while (<INIPORTS>) {
+#chomp (@INIPORTS = $_);
+$INIPORTS[$IPI] = $_;
+$IPI++;
+$NINIPORTS++;
+}
+#@INIPORTS = (1,2,3,4,5,6);
+#$NINIPORTS = 6;
+
+$I = 0;
+while (<STATS>)  {
+#
+# There are 9 fields in each line delimited by a comma.  Split the 9 fields into a 2 dimensional array:  $STATS[$I][$K]
+# The while  (<STATS>) reads the file until it runs out of lines.
+#
+@FIELDS = split (',',$_ );
+
+$STATS[$I][0] = $FIELDS[0];
+#substr($STATS[$I][0],0,1)="";
+$STATS[$I][1] = $FIELDS[1];
+$STATS[$I][2] = $FIELDS[2];
+$STATS[$I][3] = $FIELDS[3];
+$STATS[$I][4] = $FIELDS[4];
+$STATS[$I][5] = $FIELDS[5];
+$NULL1		 =  $FIELDS[6];
+$STATS[$I][6]  = $FIELDS[7];
+$STATS[$I][7] = $FIELDS[8];
+$STATS[$I][8] = $FIELDS[9];
+$NULL2 = $FIELDS[10];
+# print "I: $I,  Port: $STATS[$I][1] \n";
+#print "$I  $STATS[$I][0] $STATS[$I][1] $STATS[$I][2]  $STATS[$I][3] $STATS[$I][4]\n";
+# The $I variable counts how many lines are read in from the tarpn_home_linkquality.dat file
+#
+$I++;
+}
+#print_2d(@STATS) ;
+
+$LINES = $I-1;  #Because the $STATS array starts at 0
+#$J = $LINES -1;
+
+$LAST = $LINES ;
+$L = 0;
+#
+#  The outer while iterates through the number of active ports.
+#
+#=======================================================================================
+# The following sequence looks to see if there ports that have missing data over an interval of > 60 minutes
+#=======================================================================================
+
+while ($L < $NPORTS ) {
+#
+#  Searc for large time intervals between successive data lines for the same port.
+#  Start the search index and at the last line in the data file which is the most recent data.
+#
+$LAST = $LINES ;
+$M = $LAST;
+$LATEST_TIME = $STATS[$LAST][0];
+#print "M: $M  LATEST_TIME: $LATEST_TIME ";
+while ($M >= 0) {
+
+if ( ($STATS[$M][1] == @PORTS[$L]) && ( ( $LATEST_TIME - $STATS[$M][0]) < 7200 ) ) {
+
+#
+#  Calculate the time stamp for this data and the time intrval between $LAST and the current Line
+#
+$EPOCH = $STATS[$M][0];
+$EDT =  `date +"%F %R" -d \@'${EPOCH}'`;
+#print "EDT   $EDT ";
+chomp($EDT);
+$NEIGHBOR_CALL =  $STATS[$M][2];
+$TIME_INT = ($STATS[$LAST][0] - $STATS[$M][0]) / 60 ;
+$DT = $LATEST_TIME - $STATS[$M][0];
+$LATEST_TIME = $STATS[$M][0];
+#
+#
+$LOCAL_UP_DOWN =  $STATS[$M][3];
+if ( $LOCAL_UP_DOWN eq 'b' ) {
+
+printf "%s -- Link from Local to %8s  is Down on port %d !\n", $EDT, $NEIGHBOR_CALL, @PORTS[$L];
+}
+#
+        $NEIGHBOR_UP_DOWN =  substr($STATS[$M][6],2,1);
+        if ( $NEIGHBOR_UP_DOWN eq 'b' ) {
+printf "%s -- Link from %8s  to Local  is Down on port %d !\n", $EDT, $NEIGHBOR_CALL, @PORTS[$L];
+}
+
+
+
+if ($TIME_INT > 60) {
+printf "Port %2d  %15s EDT -- Stats Missing for %3d Min \n ",  $PORTS[$L],   $EDT, $TIME_INT ;
+#print " $LAST, $STATS[$LAST][0], $M $STATS[$M][0] $PORTS[$L],   $EDT, $TIME_INT " ;
+}
+
+# This matches if ($STATS[$M][1] == @PORTS[$L])  -- OK
+#
+$LAST = $M;
+$M--;   #Added to fix problem with crazy time interval
+}
+# Start at $M ==  $LAST and then count down until M == 0.
+$M--;
+}
+$L++;
+#Go to the next port.
+}
+#=======================================================================================
+# Done with looking for missing time intervals
+#=======================================================================================
+print "\n port    call       time       out   %bad     in   %bad \n";
+#
+# Loop for each port
+#
+$L = 0;
+#print "NPORTS $NPORTS  ARRAY: @PORTS \n";
+while ($L < $NINIPORTS ) {
+#=======================================================================================
+# Check if all the ports have active traffic.
+#
+# $NPORTS is the number of ports actually seen in the .dat file
+# $NINIPORTS is the number of configured ports in the .ini file.
+#
+# Use @INIPORTS and check if the port from @INIPORTS is in the @PORTS array
+#
+# if not:   write an error message for the port and  # goto  NEXTPORT
+#
+#
+$SRCHPORT = $INIPORTS[$L];
+#
+if (!grep { $_ == $SRCHPORT } @PORTS ) {
+chomp ($INIPORTS[$L]);
+print "Port $INIPORTS[$L]  has no active traffic \n";
+goto NEXTPORT;
+}
+#======================================================================================
+
+$COMMENT = "";
+$P = @INIPORTS[$L];
+$LAST = $LINES ;
+$J = $LAST ;
+$DELTC = 0;
+$DENTC = 0;
+$FOUND = '0';
+#print "P: $P  J: $J    LAST: $LAST \n";
+#
+#  Search for the last line in the file which has data for port $L
+#  When it is found stop the search and set the location of this line in the array to $LAST
+#
+
+while (! $FOUND )  {
+#print "While not found-- J: $J LAST: $LAST   P: $P \n";
+if ( ($STATS[$J][1]) == $P) {
+$LAST = $J;
+$FOUND = 1;
+#print "Found -- J: $J LAST: $LAST  DESTC: $DELTC  P: $P \n";
+$J--;
+}
+$J--;
+} # End of While ! $FOUND
+
+#print "Before Double && -- J: $J LAST: $LAST  STATS: $STATS[$J][1] P: $P DESTC: $DELTC  P: $P \n";
+#
+# Next, do another search for the first line in the file which has data for port $P and has a delta Incoming packet count > 100
+#
+while  ( ($DELTC < $PACKET_CNT) &&  ($FOUND)  ) {
+# Keep Searching
+
+if ( ($STATS[$J][1]) == $P ) {
+$DEKTA_TIME = ($STATS[$LAST][0] - $STATS[$J][0]) / 60;
+if ($DELTC < 0) {
+#
+# The counter has reset  so add the current values to  the values in the $LAST array line for the values being monitored
+#
+        $STATS[$LAST][4] = $STATS[$LAST][4]  + $STATS[$J][4];
+        $STATS[$LAST][5] = $STATS[$LAST][5]  + $STATS[$J][5];
+$COMMENT = "Local TX Packets reset...";
+#
+}
+if ($DENTC < 0)  {
+#
+# The counter has reset  so add the current values to  the values in the $LAST array line for the values being monitored
+#
+        $STATS[$LAST][7] = $STATS[$LAST][7]  + $STATS[$J][7];
+        $STATS[$LAST][8] = $STATS[$LAST][8]  + $STATS[$J][8];
+$COMMENT = "Neighbor TX Packets reset...";
+#
+#
+}
+
+$DELTC =  $STATS[$LAST][4] - $STATS[$J][4];
+$DENTC =  $STATS[$LAST][7] - $STATS[$J][7];
+#
+#$DELTA_TIME = ($STATS[$LAST][0] - $STATS[$J][0]) / 60;
+#print "During Double  -- J:$J P:$P LAST:$LAST  DESTC:$DELTC  Current Time $STATS[$J][0] Last Time $STATS[$LAST][0] DeltaTime: $DELTA_TIME  \n";
+#
+if ($J <= 1 ) {
+$NC_INT = ($STATS[$LAST][0] - $STATS[$J][0]) / 60;
+printf  "  %2d Insufficient Local Trans Count traffic: %3d over %3d Min\n", $P, $DELTC, $NC_INT;
+#print "Port: $P   J: $J  LAST: $STATS[$LAST][0]  [J]: $STATS[$J][0]  LOC_TRANS-LAST:  $STATS[$LAST][4] LOC_TRANS-LAST-J:  $STATS[$J][4] \n";
+goto NEXTPORT;}
+
+}   ## moved from before if ($J <= 1 )
+
+$J--;
+} # While $DELTC
+
+#
+# When the search for DELTC is done the data for that port can be printed.
+#
+$J++;
+
+        $EPOCH =  $STATS[$LAST][0];
+        $EDT =  `date +"%F %R" -d \@'${EPOCH}'`;
+#		print "LAST:  $LAST J: $J  P: $P EPOCH: $EPOCH EDT: $EDT  \n";
+        chomp($EDT);
+        $PORT =  $STATS[$LAST][1];
+        $NEIGHBOR_CALL =  $STATS[$LAST][2];
+        $LOCAL_UP_DOWN =  $STATS[$LAST][3];
+        $LOCAL_TRANS_COUNT =  $STATS[$LAST][4];
+        $LOCAL_RETRY_COUNT =  $STATS[$LAST][5];
+        $TRI_STRING =  $STATS[$LAST][6];
+        $LOCAL_BUFFER_WAIT =  substr($TRI_STRING,0,1);
+        $SEPARATOR =  substr($TRI_STRING,1,1);
+        $NEIGHBOR_UP_DOWN =  substr($TRI_STRING,2,1);
+        $NEIGHBOR_TRANS_COUNT =  $STATS[$LAST][7];
+        $NEIGHBOR_RETRY_COUNT =  $STATS[$LAST][8];
+        $NEIGHBOR_BUFFER_WAIT =  $STATS[$LAST][9];
+
+
+if (  ($NEIGHBOR_UP_DOWN ne 'b' ) &&  ( $LOCAL_UP_DOWN ne 'b' ) ) {
+#
+        $DT = ($EPOCH  - $STATS[$J][0]) / 60;
+#		print "EPOCH  $EPOCH J: $J  LAST: $LAST  STATS  $STATS[$J][0]) \n";
+
+#		print "J: $J  STATS: $STATS[$J][0] $STATS[$J][1] $STATS[$J][2] $STATS[$J][3] $STATS[$J][4] $STATS[$J][5] $STATS[$J][6] $STATS[$J][7] $STATS[$J][8] \n";
+#		print "LAST: $LAST  STATS: $STATS[$LAST][0] $STATS[$LAST][1] $STATS[$LAST][2] $STATS[$LAST][3] $STATS[$LAST][4] $STATS[$LAST][5] $STATS[$LAST][6] $STATS[$LAST][7] $STATS[$LAST][8] \n\n";
+
+		$DELTA_LOCAL_TRANS_COUNT=$STATS[$LAST][4] - $STATS[$J][4];
+        $DELTA_LOCAL_RETRY_COUNT=$STATS[$LAST][5] - $STATS[$J][5];
+        $DELTA_NEIGHBOR_TRANS_COUNT=$STATS[$LAST][7]  - $STATS[$J][7];
+        $DELTA_NEIGHBOR_RETRY_COUNT=$STATS[$LAST][8]  - $STATS[$J][8];
+#
+        if ( ($DELTA_LOCAL_TRANS_COUNT != 0) && ($DELTA_NEIGHBOR_TRANS_COUNT != 0 ) ) {
+        $RT1=$DELTA_LOCAL_RETRY_COUNT/$DELTA_LOCAL_TRANS_COUNT*100;
+        $RT2=$DELTA_NEIGHBOR_RETRY_COUNT/$DELTA_NEIGHBOR_TRANS_COUNT*100;
+
+# $EDT printf "%s   %d   %8s  %4d Min  %1s %4d  %3.0f%%    %1s %4d %3.0f%% \n",
+printf "   %2d   %8s  %4d Min  %1s %4d  %3.0f%%    %1s %4d %3.0f%% %12s \n", $PORT,  $NEIGHBOR_CALL, $DT, $LOCAL_UP_DOWN,  $DELTA_LOCAL_TRANS_COUNT, $RT1, $NEIGHBOR_UP_DOWN,  $DELTA_NEIGHBOR_TRANS_COUNT, $RT2, $COMMENT ;
+#printf "   %d   %8s  %4d Min  %1s %4d  %3.0f%%    %1s %4d %3.0f%% %12s %2d %2d %2d %10s %10s\n",
+#$PORT,  $NEIGHBOR_CALL, $DT, $LOCAL_UP_DOWN,  $DELTA_LOCAL_TRANS_COUNT, $RT1, $NEIGHBOR_UP_DOWN,  $DELTA_NEIGHBOR_TRANS_COUNT, $RT2,
+# $COMMENT, $LINES, $LAST, $J, $STATS[$LAST][0], $STATS[$J][0] ;
+
+}
+
+}    # If if (  ($NEIGHBOR_UP_DOWN ne 'b' ) &&  ( $LOCAL_UP_DOWN ne 'b' ) )
+NEXTPORT:
+$L++;
+#  After the data is print ed, go on the the next port...
+}
+#
+sub print_2d {
+	my @array_2d=@_;
+	for(my $i = 0; $i <= $#array_2d; $i++){
+	   for(my $j = 0; $j <= $#{$array_2d[$i]} ; $j++){
+	      print "$array_2d[$i][$j] ";
+	   }
+	   print "\n";
+	}
+}
+
+close (STATS);
+
+close (PIPORTS);

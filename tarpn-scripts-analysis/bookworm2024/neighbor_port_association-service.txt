@@ -1,0 +1,11 @@
+[Unit]
+Description=Neighbor to Port association service  see /var/log/tarpn_neighbor_port_association.log
+
+[Service]
+ExecStart=/usr/tarpn/sbin/npa.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

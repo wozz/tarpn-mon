@@ -1,0 +1,12 @@
+### calls_for_BPQ_custom_commands-005
+trr     stream  tcp     nowait  root    /usr/tarpn/sbin/trr.sh
+linux   stream  tcp     nowait  root    /usr/tarpn/sbin/linux.sh
+tchat   stream  tcp     nowait  root    /usr/tarpn/sbin/tchat
+tinfo   stream  tcp     nowait  root    /usr/tarpn/sbin/tinfo.sh
+linktest stream tcp     nowait  root    /usr/tarpn/sbin/node_calls_linktest.sh
+latlon  stream tcp     nowait  root    /usr/tarpn/sbin/latlon.sh
+cmd7    stream tcp     nowait  root    /usr/tarpn/sbin/cmd7.sh
+cmd8    stream tcp     nowait  root    /usr/tarpn/sbin/cmd8.sh
+cmd9    stream tcp     nowait  root    /usr/tarpn/sbin/cmd9.sh
+cmd10   stream tcp     nowait  root    /usr/tarpn/sbin/cmd10.sh
+
