@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { StyleSheet, Text, View, TextInput, Switch, TouchableOpacity, ScrollView, Modal, Alert } from 'react-native';
 import { AppContext } from '../context/AppContext';
+import appJson from '../../app.json';
 
 // Helper to get status color
 const getStatusColor = (state) => {
@@ -386,7 +387,7 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.footer}>
-                <Text style={styles.versionText}>TARPN Monitor Mobile v1.0.0</Text>
+                <Text style={styles.versionText}>TARPN Terminal v{appJson.expo.version}</Text>
             </View>
         </ScrollView>
     );

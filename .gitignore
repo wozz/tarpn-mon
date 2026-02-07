@@ -35,8 +35,10 @@ dist/
 
 # Docker testnet runtime artifacts
 tarpn-chat/docker-testnet/tarpn-chat
+tarpn-chat/docker-testnet/linbpq
 tarpn-chat/docker-testnet/node*/tarpn-chat
 tarpn-chat/docker-testnet/node*/BPQNODES.dat
+__pycache__/
 
 # Canvaskit WASM (copied from node_modules at build time)
 tarpn-terminal/public/canvaskit.wasm
