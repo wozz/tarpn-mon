@@ -1,0 +1,32 @@
+# tarpn-chat configuration for node4
+# NetROM connect mode: tarpn-chat connects TO LinBPQ's NETROMPORT
+# LinBPQ has ROUTES entry with TCP=0.0.0.0 to accept our connection
+
+[node]
+call = "TEST4-9"
+alias = "T4CHAT"
+
+# NetROM connect mode - we connect to LinBPQ's NETROMPORT
+[netrom]
+linbpq = "127.0.0.1:63119"
+
+# Client API for local WebSocket clients (tarpn-mon backend, test clients)
+[client]
+port = 8513
+bind = "0.0.0.0"
+max_clients = 10
+
+# Peer connections to adjacent chat nodes
+# node4 connects to node2, node5, node6 (via physical links)
+
+[[peers]]
+call = "TEST2-9"
+alias = "T2CHAT"
+
+[[peers]]
+call = "TEST5-9"
+alias = "T5CHAT"
+
+[[peers]]
+call = "TEST6-9"
+alias = "T6CHAT"

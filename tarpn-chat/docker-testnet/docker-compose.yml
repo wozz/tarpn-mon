@@ -1,0 +1,309 @@
+# Docker test network for LinBPQ chat development
+#
+# Network topology:
+#   node1 (TEST1-1) <---> node2 (TEST2-1) <---> node3 (TEST3-1)
+#                                  |
+#                                  v
+#                         node4 (TEST4-1) [tarpn-chat]
+#                          /              \
+#                         v                v
+#        node5 (TEST5-1) [tarpn-chat]    node6 (TEST6-1) [linbpq]
+#                  |
+#                  v
+#        node7 (TEST7-1) [linbpq]
+#
+# All nodes use AXUDP for L2/L3 communication
+# Each node has telnet (8010) and web (8080) exposed on different host ports
+#
+# Usage:
+#   docker-compose up -d
+#   # Connect to node1: telnet localhost 8011
+#   # Connect to node2: telnet localhost 8012
+#   # etc.
+
+services:
+  node1:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node1
+    hostname: node1
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.2
+    ports:
+      - "8011:8010"   # Telnet
+      - "8081:8080"   # Web
+    volumes:
+      - ./node1:/opt/linbpq/config:ro
+    environment:
+      - NODECALL=TEST1-1
+      - NODEALIAS=NODE1
+
+  node2:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node2
+    hostname: node2
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.3
+    ports:
+      - "8012:8010"   # Telnet
+      - "8082:8080"   # Web
+    volumes:
+      - ./node2:/opt/linbpq/config:ro
+    environment:
+      - NODECALL=TEST2-1
+      - NODEALIAS=NODE2
+
+  node3:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node3
+    hostname: node3
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.4
+    ports:
+      - "8013:8010"   # Telnet
+      - "8083:8080"   # Web
+    volumes:
+      - ./node3:/opt/linbpq/config:ro
+    environment:
+      - NODECALL=TEST3-1
+      - NODEALIAS=NODE3
+
+  # Node4 runs our custom tarpn-chat (NetROM mode)
+  # tarpn-chat connects to LinBPQ's NETROMPORT as a peer NetROM node
+  node4:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node4
+    hostname: node4
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.5
+    ports:
+      - "8014:8010"   # Telnet
+      - "8084:8080"   # Web
+      - "63119:63119" # LinBPQ NETROMPORT (for debugging)
+      - "8514:8513"   # tarpn-chat client API (WebSocket)
+    volumes:
+      - ./node4:/opt/linbpq/config:ro
+      - ../dist/tarpn-chat-x86_64-musl:/opt/tarpn-chat/tarpn-chat:ro
+      - ./node4/tarpn-chat.toml:/opt/tarpn-chat/config.toml:ro
+    environment:
+      - NODECALL=TEST4-1
+      - NODEALIAS=NODE4
+    # Run linbpq and tarpn-chat together
+    command: >
+      /bin/sh -c "
+        cp /opt/linbpq/config/bpq32.cfg /opt/linbpq/bpq32.cfg 2>/dev/null || true;
+        cp /opt/linbpq/config/linmail.cfg /opt/linbpq/linmail.cfg 2>/dev/null || true;
+        cp /opt/linbpq/config/chatconfig.cfg /opt/linbpq/chatconfig.cfg 2>/dev/null || true;
+        cp /opt/linbpq/config/BPQNODES.dat /opt/linbpq/BPQNODES.dat 2>/dev/null || true;
+        /opt/linbpq/linbpq &
+        sleep 5;
+        exec /opt/tarpn-chat/tarpn-chat --config /opt/tarpn-chat/config.toml --log-level trace
+      "
+
+  # Node5 runs our custom tarpn-chat (NetROM mode)
+  # tarpn-chat connects to LinBPQ's NETROMPORT as a peer NetROM node
+  node5:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node5
+    hostname: node5
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.6
+    ports:
+      - "8015:8010"   # Telnet
+      - "8085:8080"   # Web
+      - "63120:63119" # LinBPQ NETROMPORT (for debugging)
+      - "8515:8513"   # tarpn-chat client API (WebSocket)
+    volumes:
+      - ./node5:/opt/linbpq/config:ro
+      - ../dist/tarpn-chat-x86_64-musl:/opt/tarpn-chat/tarpn-chat:ro
+      - ./node5/tarpn-chat.toml:/opt/tarpn-chat/config.toml:ro
+    environment:
+      - NODECALL=TEST5-1
+      - NODEALIAS=NODE5
+    # Run linbpq and tarpn-chat together
+    command: >
+      /bin/sh -c "
+        cp /opt/linbpq/config/bpq32.cfg /opt/linbpq/bpq32.cfg 2>/dev/null || true;
+        cp /opt/linbpq/config/linmail.cfg /opt/linbpq/linmail.cfg 2>/dev/null || true;
+        cp /opt/linbpq/config/chatconfig.cfg /opt/linbpq/chatconfig.cfg 2>/dev/null || true;
+        cp /opt/linbpq/config/BPQNODES.dat /opt/linbpq/BPQNODES.dat 2>/dev/null || true;
+        /opt/linbpq/linbpq &
+        sleep 5;
+        exec /opt/tarpn-chat/tarpn-chat --config /opt/tarpn-chat/config.toml --log-level trace
+      "
+
+  # Node6 runs LinBPQ with built-in chat, connects to node4
+  node6:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node6
+    hostname: node6
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.7
+    ports:
+      - "8016:8010"   # Telnet
+      - "8086:8080"   # Web
+    volumes:
+      - ./node6:/opt/linbpq/config:ro
+    environment:
+      - NODECALL=TEST6-1
+      - NODEALIAS=NODE6
+
+  # Node7 runs LinBPQ with built-in chat, connects to node5
+  node7:
+    image: linbpq:test
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tarpn-node7
+    hostname: node7
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.8
+    ports:
+      - "8017:8010"   # Telnet
+      - "8087:8080"   # Web
+    volumes:
+      - ./node7:/opt/linbpq/config:ro
+    environment:
+      - NODECALL=TEST7-1
+      - NODEALIAS=NODE7
+
+  # Persistent chat clients to keep links alive and send periodic test messages
+  # Each client exposes an HTTP API for integration testing
+  client1:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: tarpn-client1
+    hostname: client1
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "5001:5000"   # HTTP API for testing
+    environment:
+      - CHAT_HOST=172.20.0.3  # node2
+      - CHAT_PORT=8010
+      - CHAT_CALLSIGN=ALICE
+      - CHAT_PASSWORD=test
+      - CHAT_USERNAME=Alice
+      - STARTUP_DELAY=15
+      - RECONNECT_DELAY=10
+      - SEND_MESSAGES=true
+      - MESSAGE_INTERVAL=60
+      - MESSAGE_JITTER=15
+      - CLIENT_ID=ALICE
+      - HTTP_PORT=5000
+    depends_on:
+      - node2
+
+  client2:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: tarpn-client2
+    hostname: client2
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.11
+    ports:
+      - "5002:5000"   # HTTP API for testing
+    environment:
+      - CHAT_HOST=172.20.0.2  # node1
+      - CHAT_PORT=8010
+      - CHAT_CALLSIGN=BOB
+      - CHAT_PASSWORD=test
+      - CHAT_USERNAME=Bob
+      - STARTUP_DELAY=20
+      - RECONNECT_DELAY=10
+      - SEND_MESSAGES=true
+      - MESSAGE_INTERVAL=60
+      - MESSAGE_JITTER=15
+      - CLIENT_ID=BOB
+      - HTTP_PORT=5000
+    depends_on:
+      - node1
+
+  client6:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: tarpn-client6
+    hostname: client6
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.12
+    ports:
+      - "5006:5000"   # HTTP API for testing
+    environment:
+      - CHAT_HOST=172.20.0.7  # node6
+      - CHAT_PORT=8010
+      - CHAT_CALLSIGN=CAROL
+      - CHAT_PASSWORD=test
+      - CHAT_USERNAME=Carol
+      - STARTUP_DELAY=30
+      - RECONNECT_DELAY=10
+      - SEND_MESSAGES=true
+      - MESSAGE_INTERVAL=60
+      - MESSAGE_JITTER=15
+      - CLIENT_ID=CAROL
+      - HTTP_PORT=5000
+    depends_on:
+      - node6
+
+  client7:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: tarpn-client7
+    hostname: client7
+    networks:
+      tarpn-net:
+        ipv4_address: 172.20.0.13
+    ports:
+      - "5007:5000"   # HTTP API for testing
+    environment:
+      - CHAT_HOST=172.20.0.8  # node7
+      - CHAT_PORT=8010
+      - CHAT_CALLSIGN=DAN
+      - CHAT_PASSWORD=test
+      - CHAT_USERNAME=Dan
+      - STARTUP_DELAY=35
+      - RECONNECT_DELAY=10
+      - SEND_MESSAGES=true
+      - MESSAGE_INTERVAL=60
+      - MESSAGE_JITTER=15
+      - CLIENT_ID=DAN
+      - HTTP_PORT=5000
+    depends_on:
+      - node7
+
+networks:
+  tarpn-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

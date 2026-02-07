@@ -28,15 +28,19 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
+        cache-dependency-path: tarpn-terminal/package-lock.json
 
     - name: Install JS dependencies
-      run: npm ci
-
-    - name: Test JS
-      run: npm test
+      run: |
+        cd tarpn-terminal
+        npm ci
 
     - name: Build JS
-      run: npm run build
+      run: |
+        cd tarpn-terminal
+        npx expo export -p web
+        cd ..
+        mv tarpn-terminal/dist web-dist
 
     - name: Test Go
       run: go test -v ./...

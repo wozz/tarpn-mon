@@ -3,6 +3,49 @@ log/
 
 # Node.js
 node_modules/
+
+# Old Vue build output
 static/js/dist/
 
+# Test coverage
 coverage/
+
+# Go binary
+tarpn-mon
+
+# Expo/React Native build output (embedded at build time)
+web-dist/
+
+# Backup of old Vue app (local reference only)
+static_vue/
+
+# Gemini AI
+.gemini/
+
+# Claude Code
+.claude/
+
+chat.db
+linkstats.db
+linkstats.db-shm
+linkstats.db-wal
+
+# Build output directory (binaries, packaged scripts, manifest)
+dist/
+
+# Docker testnet runtime artifacts
+tarpn-chat/docker-testnet/tarpn-chat
+tarpn-chat/docker-testnet/linbpq
+tarpn-chat/docker-testnet/node*/tarpn-chat
+tarpn-chat/docker-testnet/node*/BPQNODES.dat
+__pycache__/
+
+# Canvaskit WASM (copied from node_modules at build time)
+tarpn-terminal/public/canvaskit.wasm
+tarpn-terminal/web/canvaskit.wasm
+tarpn-terminal/web/static/js/canvaskit.wasm
+
+# RCE test artifacts (Pi binary, runtime files)
+tarpn-chat/docker-testnet/rce-test/linbpq
+tarpn-chat/docker-testnet/rce-test/*.pid
+tarpn-chat/docker-testnet/rce-test/system_addr.txt
