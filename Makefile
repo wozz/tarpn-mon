@@ -115,7 +115,7 @@ build-all: build-arm32 build-arm64 build-amd64 build-sendroutesviacq-arm32 build
 build-sendroutesviacq:
 	@echo "Building send-routes-via-cq for current platform..."
 	@mkdir -p $(DIST_DIR)
-	cd $(SENDROUTESVIACQ_DIR) && go build -ldflags="-s -w" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME) .
+	cd $(SENDROUTESVIACQ_DIR) && go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME) .
 	@ls -lh $(DIST_DIR)/$(SENDROUTESVIACQ_NAME)
 
 # Cross-compile for ARM32
@@ -123,7 +123,7 @@ build-sendroutesviacq-arm32:
 	@echo "Building send-routes-via-cq for linux/arm32..."
 	@mkdir -p $(DIST_DIR)
 	cd $(SENDROUTESVIACQ_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
-		go build -ldflags="-s -w" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-arm32 .
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-arm32 .
 	@ls -lh $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-arm32
 
 # Cross-compile for ARM64
@@ -131,7 +131,7 @@ build-sendroutesviacq-arm64:
 	@echo "Building send-routes-via-cq for linux/arm64..."
 	@mkdir -p $(DIST_DIR)
 	cd $(SENDROUTESVIACQ_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-		go build -ldflags="-s -w" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-arm64 .
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-arm64 .
 	@ls -lh $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-arm64
 
 # Cross-compile for AMD64
@@ -139,7 +139,7 @@ build-sendroutesviacq-amd64:
 	@echo "Building send-routes-via-cq for linux/amd64..."
 	@mkdir -p $(DIST_DIR)
 	cd $(SENDROUTESVIACQ_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-		go build -ldflags="-s -w" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-amd64 .
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-amd64 .
 	@ls -lh $(DIST_DIR)/$(SENDROUTESVIACQ_NAME).linux-amd64
 
 # Run tests

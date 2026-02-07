@@ -20,8 +20,10 @@ import (
 	"time"
 )
 
+// Version is set at build time via -ldflags "-X main.Version=..."
+var Version = "dev"
+
 const (
-	Version     = 5
 	NodeAddress = "127.0.0.1:8010"
 	LogFileName = "/var/log/tarpn_linkstatus.log"
 	MaxRoutes   = 22
@@ -65,7 +67,7 @@ func main() {
 		arg := os.Args[i]
 		switch {
 		case arg == "-v" || arg == "--version":
-			fmt.Printf("TARPN send-routes-via-cq -- version %d (Go rewrite)\n", Version)
+			fmt.Printf("TARPN send-routes-via-cq -- version %s\n", Version)
 			os.Exit(0)
 		case arg == "-h" || arg == "--help":
 			printUsage()
@@ -139,7 +141,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Printf(`TARPN send-routes-via-cq -- version %d (Go rewrite)
+	fmt.Printf(`TARPN send-routes-via-cq -- version %s
 
 Usage: send-routes-via-cq [options]
 
@@ -411,12 +413,12 @@ func parseRouteLine(line string) (RouteEntry, bool) {
 	// - 0, 1, or 2 exclamation marks
 	// - Percent field with or without % sign, or just whitespace
 	// - Optional trailing data
-	re := regexp.MustCompile(`^\s*(\d+)\s+([A-Z0-9]+-?\d*)\s+(\d+)\s+(\d+)(!{0,2})\s+(\d+)\s+(\d+)\s+(\d+%?|\s*)\s*(\d+)\s+(\d+)\s+(\d+:\d+)\s+(\d+)\s+(\d+)`)
+	re := regexp.MustCompile(`^\s*(\d+)\s+([A-Z0-9]+-?\d*)\s+(\d+)\s+(\d+)(!{0,2})\s*(\d+)\s+(\d+)\s+(\d+%?|\s*)\s*(\d+)\s+(\d+)\s+(\d+:\d+)\s+(\d+)\s+(\d+)`)
 
 	match := re.FindStringSubmatch(line)
 	if match == nil {
 		// Try alternate pattern for lines where percent is just a number (no %)
-		re2 := regexp.MustCompile(`^\s*(\d+)\s+([A-Z0-9]+-?\d*)\s+(\d+)\s+(\d+)(!{0,2})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+:\d+)\s+(\d+)\s+(\d+)`)
+		re2 := regexp.MustCompile(`^\s*(\d+)\s+([A-Z0-9]+-?\d*)\s+(\d+)\s+(\d+)(!{0,2})\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+:\d+)\s+(\d+)\s+(\d+)`)
 		match = re2.FindStringSubmatch(line)
 		if match == nil {
 			return route, false

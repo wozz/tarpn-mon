@@ -158,6 +158,89 @@ func TestParseNewFormat(t *testing.T) {
 	}
 }
 
+// Test data where nodes count and info frames run together with no space (e.g., "7!!1549")
+const noSpaceAfterBangsResponse = `MIKE:WA2M-2} Routes
+> 2 N2IRZ-2   200   7!!1549   39   2% 0 0 19:10  0 200
+3 NF4L-2    200   6!!2014  561  27% 0 0 19:04  0 200
+> 1 NZ2Z-2    200   7!!1433  125   8% 0 0 19:13  0 156
+>32 WA2M-9    200   1!   0    0      0 0 00:00  0 0 47310
+`
+
+func TestParseNoSpaceAfterBangs(t *testing.T) {
+	myCallsign, routes, err := parseRoutesTable(noSpaceAfterBangsResponse)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	if myCallsign != "WA2M-2" {
+		t.Errorf("Expected callsign WA2M-2, got %s", myCallsign)
+	}
+
+	if len(routes) != 4 {
+		t.Fatalf("Expected 4 routes, got %d", len(routes))
+	}
+
+	// Check N2IRZ-2: "7!!1549" - nodes=7, infoframes=1549
+	r := routes[0]
+	if r.PortNumber != 2 {
+		t.Errorf("Route 0: expected port 2, got %d", r.PortNumber)
+	}
+	if r.Callsign != "N2IRZ-2" {
+		t.Errorf("Route 0: expected callsign N2IRZ-2, got %s", r.Callsign)
+	}
+	if !r.ChevronSet {
+		t.Error("Route 0: expected chevron to be set")
+	}
+	if r.LockedRoutes != 2 {
+		t.Errorf("Route 0: expected 2 locked routes, got %d", r.LockedRoutes)
+	}
+	if r.NumberOfNodes != 7 {
+		t.Errorf("Route 0: expected 7 nodes, got %d", r.NumberOfNodes)
+	}
+	if r.InfoFramesSent != 1549 {
+		t.Errorf("Route 0: expected 1549 info frames, got %d", r.InfoFramesSent)
+	}
+	if r.RetriesSent != 39 {
+		t.Errorf("Route 0: expected 39 retries, got %d", r.RetriesSent)
+	}
+	if r.PercentRetries != 2 {
+		t.Errorf("Route 0: expected 2%% retries, got %d", r.PercentRetries)
+	}
+
+	// Check NF4L-2: "6!!2014" - no chevron, nodes=6, infoframes=2014
+	r = routes[1]
+	if r.Callsign != "NF4L-2" {
+		t.Errorf("Route 1: expected callsign NF4L-2, got %s", r.Callsign)
+	}
+	if r.ChevronSet {
+		t.Error("Route 1: expected chevron NOT to be set")
+	}
+	if r.NumberOfNodes != 6 {
+		t.Errorf("Route 1: expected 6 nodes, got %d", r.NumberOfNodes)
+	}
+	if r.InfoFramesSent != 2014 {
+		t.Errorf("Route 1: expected 2014 info frames, got %d", r.InfoFramesSent)
+	}
+	if r.PercentRetries != 27 {
+		t.Errorf("Route 1: expected 27%% retries, got %d", r.PercentRetries)
+	}
+
+	// Check NZ2Z-2: "7!!1433" - nodes=7, infoframes=1433
+	r = routes[2]
+	if r.NumberOfNodes != 7 {
+		t.Errorf("Route 2: expected 7 nodes, got %d", r.NumberOfNodes)
+	}
+	if r.InfoFramesSent != 1433 {
+		t.Errorf("Route 2: expected 1433 info frames, got %d", r.InfoFramesSent)
+	}
+	if r.BuffersToSend != 0 {
+		t.Errorf("Route 2: expected 0 buffers, got %d", r.BuffersToSend)
+	}
+	if r.MysteryFigure3 != 156 {
+		t.Errorf("Route 2: expected mystery3=156, got %d", r.MysteryFigure3)
+	}
+}
+
 func TestExtractCallsign(t *testing.T) {
 	tests := []struct {
 		input    string
