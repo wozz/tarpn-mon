@@ -698,6 +698,123 @@ func (s *LinkStatsStorage) Get5MinSummaryRange(portNum int, since, until time.Ti
 	return summaries, nil
 }
 
+// Get15MinSummaryRange computes 15-minute interval summaries from raw data in [since, until).
+// Same logic as Get5MinSummaryRange but truncates to 15-minute buckets.
+func (s *LinkStatsStorage) Get15MinSummaryRange(portNum int, since, until time.Time) ([]FiveMinSummary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT timestamp, l2_rxed, l2_sent, l2_timeouts, rej_rxed,
+		       rx_crc_errors, frames_abandoned, active_tx_pct, active_busy_pct
+		FROM link_stats_raw
+		WHERE port_num = ? AND timestamp >= ? AND timestamp < ?
+		ORDER BY timestamp ASC`,
+		portNum, since.UTC().Format(time.RFC3339), until.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query raw data for 15-min summary range: %w", err)
+	}
+	defer rows.Close()
+
+	type rawPoint struct {
+		rxed, sent, timeouts, rej, crc, abandoned int64
+		txPct, busyPct                            int
+	}
+
+	buckets := make(map[time.Time][]rawPoint)
+	var bucketOrder []time.Time
+
+	for rows.Next() {
+		var ts string
+		var p rawPoint
+		err := rows.Scan(&ts, &p.rxed, &p.sent, &p.timeouts, &p.rej,
+			&p.crc, &p.abandoned, &p.txPct, &p.busyPct)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan raw data: %w", err)
+		}
+		t, _ := time.Parse(time.RFC3339, ts)
+		bucket := t.Truncate(15 * time.Minute)
+		if _, exists := buckets[bucket]; !exists {
+			bucketOrder = append(bucketOrder, bucket)
+		}
+		buckets[bucket] = append(buckets[bucket], p)
+	}
+
+	var summaries []FiveMinSummary
+	for _, bucket := range bucketOrder {
+		points := buckets[bucket]
+		if len(points) < 2 {
+			if len(points) == 1 {
+				summaries = append(summaries, FiveMinSummary{
+					BucketStart: bucket,
+					PortNum:     portNum,
+					AvgTxPct:    float64(points[0].txPct),
+					AvgBusyPct:  float64(points[0].busyPct),
+					SampleCount: 1,
+				})
+			}
+			continue
+		}
+
+		first := points[0]
+		last := points[len(points)-1]
+
+		var txPctSum, busyPctSum float64
+		for _, p := range points {
+			txPctSum += float64(p.txPct)
+			busyPctSum += float64(p.busyPct)
+		}
+
+		summaries = append(summaries, FiveMinSummary{
+			BucketStart:     bucket,
+			PortNum:         portNum,
+			DeltaL2Rxed:     safeDelta(first.rxed, last.rxed),
+			DeltaL2Sent:     safeDelta(first.sent, last.sent),
+			DeltaL2Timeouts: safeDelta(first.timeouts, last.timeouts),
+			DeltaREJRxed:    safeDelta(first.rej, last.rej),
+			DeltaCRCErrors:  safeDelta(first.crc, last.crc),
+			DeltaAbandoned:  safeDelta(first.abandoned, last.abandoned),
+			AvgTxPct:        txPctSum / float64(len(points)),
+			AvgBusyPct:      busyPctSum / float64(len(points)),
+			SampleCount:     len(points),
+		})
+	}
+
+	return summaries, nil
+}
+
+// GetNeighborCallsigns returns the most recent neighbor callsign per rx_port
+// from CQ broadcast data in the link_stats_neighbor table.
+// Returns a map of rx_port → callsign.
+func (s *LinkStatsStorage) GetNeighborCallsigns() (map[int]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT n.rx_port, n.callsign
+		FROM link_stats_neighbor n
+		INNER JOIN (
+			SELECT rx_port, MAX(timestamp) as max_ts
+			FROM link_stats_neighbor
+			GROUP BY rx_port
+		) latest ON n.rx_port = latest.rx_port AND n.timestamp = latest.max_ts`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query neighbor callsigns: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int]string)
+	for rows.Next() {
+		var port int
+		var call string
+		if err := rows.Scan(&port, &call); err != nil {
+			return nil, fmt.Errorf("failed to scan neighbor callsign: %w", err)
+		}
+		result[port] = call
+	}
+	return result, nil
+}
+
 // CompactHourly compacts raw data into hourly summaries.
 // Calculates deltas (max - min within hour), handles counter resets.
 func (s *LinkStatsStorage) CompactHourly() error {
