@@ -56,7 +56,35 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 
-# Check if already patched
+# =============================================================================
+# OARC API configuration (runs every time, independent of TARPN-CHAT marker)
+# =============================================================================
+# LinBPQ's OARC API sends structured JSON events via UDP to
+# node-api.packet.oarc.uk:13579. We redirect that hostname to localhost
+# via /etc/hosts so tarpn-mon receives them locally for session tracking.
+# This must be re-checked on every bpq32.cfg change because TARPN's
+# update scripts may regenerate the config and strip ENABLEOARCAPI.
+
+OARC_HOST="node-api.packet.oarc.uk"
+HOSTS_FILE="/etc/hosts"
+
+# Ensure /etc/hosts redirect is in place
+if ! grep -q "$OARC_HOST" "$HOSTS_FILE" 2>/dev/null; then
+    echo "127.0.0.1 $OARC_HOST" >> "$HOSTS_FILE"
+    log "Added '127.0.0.1 $OARC_HOST' to $HOSTS_FILE"
+fi
+
+# Ensure ENABLEOARCAPI=1 is in bpq32.cfg
+if ! grep -qi "ENABLEOARCAPI" "$CONFIG"; then
+    if grep -qi "^NODECALL=" "$CONFIG"; then
+        sed -i '/^NODECALL=/a ENABLEOARCAPI=1' "$CONFIG"
+    else
+        sed -i '1i ENABLEOARCAPI=1' "$CONFIG"
+    fi
+    log "Added ENABLEOARCAPI=1 to $CONFIG"
+fi
+
+# Check if already patched (tarpn-chat specific changes below)
 if grep -q "$MARKER" "$CONFIG"; then
     log "Config already patched, skipping"
     exit 0
