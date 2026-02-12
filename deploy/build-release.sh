@@ -18,6 +18,7 @@
 #   ./build-release.sh --arch arm64       # Build for arm64
 #   ./build-release.sh --version v1.0.0   # Specify version tag
 #   ./build-release.sh --dry-run          # Don't upload, just build
+#   ./build-release.sh --no-latest        # Upload versioned release without updating 'latest'
 #
 
 set -e
@@ -30,6 +31,7 @@ set -e
 TARGET_ARCH="arm32"
 VERSION=""
 DRY_RUN=false
+UPDATE_LATEST=true
 
 # Source AWS credentials if available
 if [ -f ~/.aws_creds ]; then
@@ -83,6 +85,7 @@ Options:
   --version VER     Version tag (default: git describe or 'dev')
   --bucket BUCKET   S3 bucket name (default: \$TARPN_S3_BUCKET or 'tarpn-releases')
   --dry-run         Build only, don't upload to S3
+  --no-latest       Upload versioned release without updating 'latest'
   --skip-mon        Skip building tarpn-mon
   --skip-chat       Skip building tarpn-chat
   --help            Show this help
@@ -103,6 +106,9 @@ Examples:
 
   # Build for testing without upload
   ./build-release.sh --dry-run
+
+  # Release a version for testing without making it 'latest'
+  ./build-release.sh --version v1.4.0-rc1 --no-latest
 
   # Build only tarpn-mon
   ./build-release.sh --skip-chat
@@ -129,6 +135,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --no-latest)
+            UPDATE_LATEST=false
             shift
             ;;
         --skip-mon)
@@ -197,6 +207,7 @@ log_info "  Target arch: $TARGET_ARCH"
 log_info "  Version:     $VERSION"
 log_info "  S3 bucket:   $S3_BUCKET"
 log_info "  Dry run:     $DRY_RUN"
+log_info "  Update latest: $UPDATE_LATEST"
 echo ""
 
 # =============================================================================
@@ -440,18 +451,29 @@ upload_to_s3() {
             --content-type "application/json"
     fi
 
-    # Also upload to 'latest' path for easy access
-    log_info "Updating 'latest' pointer..."
-    aws s3 sync "$s3_path/" "s3://$S3_BUCKET/latest/" --delete
+    # Optionally update 'latest' pointer
+    if [ "$UPDATE_LATEST" = true ]; then
+        log_info "Updating 'latest' pointer..."
+        aws s3 sync "$s3_path/" "s3://$S3_BUCKET/latest/" --delete
+    else
+        log_warn "Skipping 'latest' update (--no-latest). To promote later, run:"
+        log_warn "  aws s3 sync s3://$S3_BUCKET/$VERSION/ s3://$S3_BUCKET/latest/ --delete"
+    fi
 
     log_info "Upload complete!"
     log_info ""
     log_info "Release URLs:"
     log_info "  Versioned: https://$S3_BUCKET.s3.$S3_REGION.amazonaws.com/$VERSION/"
-    log_info "  Latest:    https://$S3_BUCKET.s3.$S3_REGION.amazonaws.com/latest/"
+    if [ "$UPDATE_LATEST" = true ]; then
+        log_info "  Latest:    https://$S3_BUCKET.s3.$S3_REGION.amazonaws.com/latest/"
+    fi
     log_info ""
-    log_info "Install command:"
-    log_info "  curl -sSL https://$S3_BUCKET.s3.$S3_REGION.amazonaws.com/latest/scripts/install.sh | sudo bash"
+    log_info "Install (versioned):"
+    log_info "  curl -sSL https://$S3_BUCKET.s3.$S3_REGION.amazonaws.com/$VERSION/scripts/install.sh | sudo TARPN_RELEASE_VERSION=$VERSION bash"
+    if [ "$UPDATE_LATEST" = true ]; then
+        log_info "Install (latest):"
+        log_info "  curl -sSL https://$S3_BUCKET.s3.$S3_REGION.amazonaws.com/latest/scripts/install.sh | sudo bash"
+    fi
 }
 
 # =============================================================================
