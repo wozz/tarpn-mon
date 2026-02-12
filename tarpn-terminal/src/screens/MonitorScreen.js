@@ -1,10 +1,12 @@
-import React, { useContext, useState, useRef, memo, useCallback } from 'react';
+import React, { useContext, useState, useRef, memo, useCallback, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { AppContext } from '../context/AppContext';
 import { htmlDecode, encodeNonPrintable } from '../utils/ax25Utils';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FilterBar from '../components/FilterBar';
+import SessionPanel from '../components/SessionPanel';
 
 // Memoized Log Row for Performance
 const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
@@ -28,7 +30,7 @@ const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
                             {prefixText}
                         </Text>
                         {item.isRetry && (
-                            <Text style={styles.retryText}>🔁</Text>
+                            <Text style={[styles.retryText, item.retryType === 'rej' && styles.retryTextRej]}>🔁</Text>
                         )}
                         <Text style={[styles.logRoute, {color: item.routeColor || '#fff'}]}>
                             &nbsp;{item.route}&nbsp;
@@ -62,7 +64,7 @@ const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
                         Port={item.port}
                     </Text>
                     {/* Retry column */}
-                    <Text style={styles.colRetry}>
+                    <Text style={[styles.colRetry, item.isRetry && item.retryType === 'rej' && styles.retryTextRej]}>
                         {item.isRetry ? '🔁' : ''}
                     </Text>
                     {/* Route column */}
@@ -89,7 +91,14 @@ export default function MonitorScreen() {
         loadMoreHistory,
         isLoadingMore,
         hasMoreHistory,
-        bufferInfo
+        bufferInfo,
+        sessions,
+        filterState,
+        setFilterState,
+        showFilterBar,
+        setShowFilterBar,
+        showSessionPanel,
+        setShowSessionPanel,
     } = useContext(AppContext);
     const [selectedMessage, setSelectedMessage] = useState(null);
     const [isAtBottom, setIsAtBottom] = useState(true);
@@ -97,6 +106,17 @@ export default function MonitorScreen() {
     const insets = useSafeAreaInsets();
 
     const lastScrollY = useRef(0);
+
+    // Count active filters for badge
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (filterState.callsign) count++;
+        if (filterState.frameTypes.length > 0) count++;
+        if (filterState.direction !== 'both') count++;
+        if (filterState.sessionId) count++;
+        if (filterState.hideRetries) count++;
+        return count;
+    }, [filterState]);
 
     const handleScroll = useCallback((event) => {
         const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
@@ -128,11 +148,34 @@ export default function MonitorScreen() {
     }, [settings.autoScroll, setSettings, hasMoreHistory, isLoadingMore, loadMoreHistory]);
 
     // Filter Logic
-    const filteredMessages = logMessages.filter(msg => {
+    const filteredMessages = useMemo(() => logMessages.filter(msg => {
         if (settings.hideUSBRoutes && msg.route === "TNC>USB") return false;
         if (msg.port && !visiblePorts.includes(msg.port)) return false;
+
+        // Advanced filters from filterState
+        if (filterState.callsign) {
+            const call = filterState.callsign;
+            const route = (msg.route || '').toUpperCase();
+            if (!route.includes(call)) return false;
+        }
+        if (filterState.frameTypes.length > 0) {
+            const ft = msg.frameType || '';
+            const isOther = !['I', 'UI', 'SABM', 'DISC', 'UA', 'RR', 'REJ'].includes(ft);
+            const match = filterState.frameTypes.includes(ft) ||
+                          (filterState.frameTypes.includes('Other') && isOther);
+            if (!match) return false;
+        }
+        if (filterState.direction !== 'both') {
+            if (filterState.direction === 'tx' && msg.prefix !== 'T') return false;
+            if (filterState.direction === 'rx' && msg.prefix !== 'R') return false;
+        }
+        if (filterState.sessionId) {
+            if (msg.sessionId !== filterState.sessionId) return false;
+        }
+        if (filterState.hideRetries && msg.isRetry) return false;
+
         return true;
-    });
+    }), [logMessages, settings.hideUSBRoutes, visiblePorts, filterState]);
 
     const getPortColor = (p) => {
         // Standard ANSI/Terminal-like colors for ports
@@ -157,11 +200,33 @@ export default function MonitorScreen() {
                  <Text style={styles.headerTitle}>Monitor Feed</Text>
                  <View style={styles.headerRight}>
                      <Text style={styles.countText}>{filteredMessages.length} msgs</Text>
-                     <TouchableOpacity onPress={clearLogs} style={styles.clearButton}>
+                     <TouchableOpacity onPress={() => setShowSessionPanel(prev => !prev)} style={styles.headerButton}>
+                        <Ionicons name="git-network-outline" size={16} color={showSessionPanel ? '#4ade80' : '#aaa'} />
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={() => setShowFilterBar(prev => !prev)} style={styles.headerButton}>
+                        <Ionicons name="filter-outline" size={16} color={showFilterBar ? '#4ade80' : '#aaa'} />
+                        {activeFilterCount > 0 && (
+                            <View style={styles.filterBadge}>
+                                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                            </View>
+                        )}
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={clearLogs} style={styles.headerButton}>
                         <Ionicons name="trash-outline" size={16} color="#aaa" />
                      </TouchableOpacity>
                  </View>
             </View>
+            <SessionPanel
+                sessions={sessions}
+                filterState={filterState}
+                setFilterState={setFilterState}
+                visible={showSessionPanel}
+            />
+            <FilterBar
+                filterState={filterState}
+                setFilterState={setFilterState}
+                visible={showFilterBar}
+            />
             
             <FlashList
                 ref={flatListRef}
@@ -287,8 +352,26 @@ const styles = StyleSheet.create({
       fontSize: 12,
       marginRight: 10
   },
-  clearButton: {
+  headerButton: {
       padding: 5,
+      marginLeft: 4,
+      position: 'relative',
+  },
+  filterBadge: {
+      position: 'absolute',
+      top: 0,
+      right: -2,
+      backgroundColor: '#ef4444',
+      borderRadius: 6,
+      width: 12,
+      height: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
+  },
+  filterBadgeText: {
+      color: '#fff',
+      fontSize: 8,
+      fontWeight: 'bold',
   },
   logRow: {
     flexDirection: 'row',
@@ -330,7 +413,10 @@ const styles = StyleSheet.create({
   retryText: {
       fontSize: 12,
       marginHorizontal: 2,
-      color: '#fbbf24' // Warning color
+      color: '#fbbf24', // Warning color (timeout retries)
+  },
+  retryTextRej: {
+      color: '#ef4444', // Red for REJ retries
   },
   // Fixed-width column styles for standard (non-compact) mode
   colDirection: {

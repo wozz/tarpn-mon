@@ -73,6 +73,24 @@ type ClientCommand struct {
 // linkStatsCollectorRef holds a reference to the stats collector for WebSocket handlers
 var linkStatsCollectorRef *LinkStatsCollector
 
+// sessionTrackerRef holds a reference to the session tracker for WebSocket handlers
+var sessionTrackerRef *SessionTracker
+
+// BroadcastSessionUpdate sends a session update to all WebSocket clients.
+// Used as the onChange callback for SessionTracker.
+func BroadcastSessionUpdate(session *Session) {
+	msg := map[string]interface{}{
+		"type":    "session_update",
+		"session": session,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		wsLog.Errorw("Failed to marshal session update", "error", err)
+		return
+	}
+	broadcastDirect(string(data))
+}
+
 func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -119,6 +137,9 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		"featureStatuses": GetAllFeatureStatuses(),
 		"featureEnabled":  true, // Signal that dynamic feature connections are supported
 		"featureSettings": appSettings.GetAllFeatures(),
+	}
+	if sessionTrackerRef != nil {
+		initMsg["sessions"] = sessionTrackerRef.GetSessions()
 	}
 	if initData, err := json.Marshal(initMsg); err == nil {
 		wc.write(string(initData))
@@ -199,6 +220,18 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				if statusData, err := json.Marshal(statusMsg); err == nil {
 					wc.write(string(statusData))
+				}
+
+			case "get_sessions":
+				// Return current session table
+				if sessionTrackerRef != nil {
+					sessMsg := map[string]interface{}{
+						"type":     "sessions",
+						"sessions": sessionTrackerRef.GetSessions(),
+					}
+					if sessData, err := json.Marshal(sessMsg); err == nil {
+						wc.write(string(sessData))
+					}
 				}
 
 			case "feature_connect":

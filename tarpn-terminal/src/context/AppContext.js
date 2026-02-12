@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { htmlDecode, parseAX25Message } from '../utils/ax25Utils';
 import { parseMessageTimestamp, getMinuteKey } from '../utils/timeUtils';
+import { DEFAULT_FILTER_STATE } from '../components/FilterBar';
 import {
   BATCH_INTERVAL_MS,
   RECONNECT_DELAY_MS,
@@ -23,6 +24,10 @@ export const AppProvider = ({ children }) => {
   const [linkStats, setLinkStats] = useState(null); // L2 link stats from S command
   const [linkStatsHistory, setLinkStatsHistory] = useState({}); // portNum → [{hourStart, ...}]
   const [neighborStats, setNeighborStats] = useState({}); // "callsign-port" → { dataPoints: [...] }
+  const [sessions, setSessions] = useState([]);
+  const [filterState, setFilterState] = useState({ ...DEFAULT_FILTER_STATE });
+  const [showFilterBar, setShowFilterBar] = useState(false);
+  const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
 
@@ -266,6 +271,10 @@ export const AppProvider = ({ children }) => {
                 if (data.featureSettings) {
                     setFeatureSettings(data.featureSettings);
                 }
+                // Handle sessions from init message
+                if (data.sessions) {
+                    setSessions(data.sessions);
+                }
                 return;
             }
 
@@ -325,6 +334,28 @@ export const AppProvider = ({ children }) => {
             // Handle neighbor CQ stats broadcast
             if (data.type === 'neighbor_link_stats') {
                 incomingNeighborQueue.current.push(data);
+                return;
+            }
+
+            // Handle full sessions table (on init or get_sessions)
+            if (data.type === 'sessions') {
+                setSessions(data.sessions || []);
+                return;
+            }
+
+            // Handle single session update
+            if (data.type === 'session_update') {
+                if (data.session) {
+                    setSessions(prev => {
+                        const idx = prev.findIndex(s => s.id === data.session.id);
+                        if (idx >= 0) {
+                            const next = [...prev];
+                            next[idx] = data.session;
+                            return next;
+                        }
+                        return [...prev, data.session];
+                    });
+                }
                 return;
             }
 
@@ -652,6 +683,14 @@ export const AppProvider = ({ children }) => {
       isLoadingMore,
       hasMoreHistory,
       bufferInfo,
+      // Sessions & Filtering
+      sessions,
+      filterState,
+      setFilterState,
+      showFilterBar,
+      setShowFilterBar,
+      showSessionPanel,
+      setShowSessionPanel,
   };
 
   return (
