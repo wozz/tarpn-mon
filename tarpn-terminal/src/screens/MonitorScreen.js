@@ -1,5 +1,5 @@
 import React, { useContext, useState, useRef, memo, useCallback, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { AppContext } from '../context/AppContext';
 import { htmlDecode, encodeNonPrintable } from '../utils/ax25Utils';
@@ -104,6 +104,8 @@ export default function MonitorScreen() {
     const [isAtBottom, setIsAtBottom] = useState(true);
     const flatListRef = useRef(null);
     const insets = useSafeAreaInsets();
+    const { width: screenWidth } = useWindowDimensions();
+    const isWideScreen = screenWidth >= 1024;
 
     const lastScrollY = useRef(0);
 
@@ -216,57 +218,72 @@ export default function MonitorScreen() {
                      </TouchableOpacity>
                  </View>
             </View>
-            <SessionPanel
-                sessions={sessions}
-                filterState={filterState}
-                setFilterState={setFilterState}
-                visible={showSessionPanel}
-            />
+            {!isWideScreen && (
+                <SessionPanel
+                    sessions={sessions}
+                    filterState={filterState}
+                    setFilterState={setFilterState}
+                    visible={showSessionPanel}
+                />
+            )}
             <FilterBar
                 filterState={filterState}
                 setFilterState={setFilterState}
                 visible={showFilterBar}
             />
-            
-            <FlashList
-                ref={flatListRef}
-                data={filteredMessages}
-                renderItem={renderLogItem}
-                keyExtractor={(item) => item.id.toString()}
-                estimatedItemSize={28}
-                contentContainerStyle={{ paddingBottom: 60 }}
-                onScroll={handleScroll}
-                onScrollBeginDrag={() => {
-                    if (settings.autoScroll) {
-                        setSettings(prev => ({ ...prev, autoScroll: false }));
-                    }
-                }}
-                scrollEventThrottle={16}
-                onContentSizeChange={() => {
-                    if (settings.autoScroll && filteredMessages.length > 0) {
-                        flatListRef.current?.scrollToEnd({ animated: false });
-                    }
-                }}
-                ListHeaderComponent={
-                    isLoadingMore ? (
-                        <View style={styles.loadingMoreContainer}>
-                            <ActivityIndicator size="small" color="#4ade80" />
-                            <Text style={styles.loadingMoreText}>Loading older messages...</Text>
-                        </View>
-                    ) : hasMoreHistory ? (
-                        <TouchableOpacity
-                            style={styles.loadMoreButton}
-                            onPress={() => loadMoreHistory()}
-                        >
-                            <Text style={styles.loadMoreText}>Load older messages</Text>
-                        </TouchableOpacity>
-                    ) : bufferInfo.count > 0 ? (
-                        <View style={styles.noMoreContainer}>
-                            <Text style={styles.noMoreText}>Beginning of buffer</Text>
-                        </View>
-                    ) : null
-                }
-            />
+
+            <View style={isWideScreen && showSessionPanel ? styles.mainRow : styles.mainFill}>
+                <View style={{ flex: 1 }}>
+                    <FlashList
+                        ref={flatListRef}
+                        data={filteredMessages}
+                        renderItem={renderLogItem}
+                        keyExtractor={(item) => item.id.toString()}
+                        estimatedItemSize={28}
+                        contentContainerStyle={{ paddingBottom: 60 }}
+                        onScroll={handleScroll}
+                        onScrollBeginDrag={() => {
+                            if (settings.autoScroll) {
+                                setSettings(prev => ({ ...prev, autoScroll: false }));
+                            }
+                        }}
+                        scrollEventThrottle={16}
+                        onContentSizeChange={() => {
+                            if (settings.autoScroll && filteredMessages.length > 0) {
+                                flatListRef.current?.scrollToEnd({ animated: false });
+                            }
+                        }}
+                        ListHeaderComponent={
+                            isLoadingMore ? (
+                                <View style={styles.loadingMoreContainer}>
+                                    <ActivityIndicator size="small" color="#4ade80" />
+                                    <Text style={styles.loadingMoreText}>Loading older messages...</Text>
+                                </View>
+                            ) : hasMoreHistory ? (
+                                <TouchableOpacity
+                                    style={styles.loadMoreButton}
+                                    onPress={() => loadMoreHistory()}
+                                >
+                                    <Text style={styles.loadMoreText}>Load older messages</Text>
+                                </TouchableOpacity>
+                            ) : bufferInfo.count > 0 ? (
+                                <View style={styles.noMoreContainer}>
+                                    <Text style={styles.noMoreText}>Beginning of buffer</Text>
+                                </View>
+                            ) : null
+                        }
+                    />
+                </View>
+                {isWideScreen && (
+                    <SessionPanel
+                        sessions={sessions}
+                        filterState={filterState}
+                        setFilterState={setFilterState}
+                        visible={showSessionPanel}
+                        sidebar
+                    />
+                )}
+            </View>
 
             {!isAtBottom && !settings.autoScroll && (
                 <TouchableOpacity 
@@ -327,6 +344,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1e1e1e',
+  },
+  mainRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  mainFill: {
+    flex: 1,
   },
   headerBar: {
       paddingHorizontal: 15,

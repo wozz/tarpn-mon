@@ -200,6 +200,12 @@ func (st *SessionTracker) HandleLinkDown(event *LinkDownEvent) {
 }
 
 func (st *SessionTracker) HandleL2Trace(event *L2TraceEvent) {
+	// UI frames are connectionless broadcasts (ID beacons, CQ, TNC info).
+	// They never create sessions, so skip them entirely.
+	if event.L2Type == "UI" {
+		return
+	}
+
 	st.mu.Lock()
 	defer st.mu.Unlock()
 

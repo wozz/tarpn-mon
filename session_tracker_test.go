@@ -796,3 +796,33 @@ func TestNotifyDebouncing(t *testing.T) {
 		t.Errorf("Expected debounced notifications (<= 5), got %d additional", additionalNotifications)
 	}
 }
+
+func TestL2TraceUIFramesIgnored(t *testing.T) {
+	rec := &changeRecorder{}
+	tracker := NewSessionTracker(100, rec.record, testLogger())
+
+	// Send UI frames (broadcasts like ID beacons, CQ, TNC info)
+	tracker.HandleL2Trace(&L2TraceEvent{
+		Type: "l2_trace", Serial: 1, Direction: "sent",
+		Port: "1", Source: "WA2M-2", Dest: "ID",
+		L2Type: "UI", PID: 0xFF,
+	})
+	tracker.HandleL2Trace(&L2TraceEvent{
+		Type: "l2_trace", Serial: 2, Direction: "sent",
+		Port: "1", Source: "WA2M-2", Dest: "CQ",
+		L2Type: "UI", PID: 0xFF,
+	})
+	tracker.HandleL2Trace(&L2TraceEvent{
+		Type: "l2_trace", Serial: 3, Direction: "rcvd",
+		Port: "1", Source: "N3LLO-2", Dest: "CQ",
+		L2Type: "UI", PID: 0xFF,
+	})
+
+	sessions := tracker.GetSessions()
+	if len(sessions) != 0 {
+		t.Errorf("Expected 0 sessions from UI frames, got %d", len(sessions))
+	}
+	if rec.count() != 0 {
+		t.Errorf("Expected 0 change notifications from UI frames, got %d", rec.count())
+	}
+}

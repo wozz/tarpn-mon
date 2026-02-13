@@ -27,6 +27,77 @@ const getRetryColor = (retryRate) => {
     return '#ef4444';
 };
 
+function SidebarSessionRow({ session, filterState, setFilterState }) {
+    const [expanded, setExpanded] = useState(false);
+    const isSelected = filterState.sessionId === session.id;
+    const hasCircuits = session.circuits && session.circuits.length > 0;
+
+    const handlePress = () => {
+        if (isSelected) {
+            setFilterState({ ...filterState, sessionId: null });
+        } else {
+            setFilterState({ ...filterState, sessionId: session.id });
+        }
+    };
+
+    const protoFlags = [
+        session.hasNetROM && 'NR',
+        session.hasIP && 'IP',
+        session.hasText && 'TXT',
+    ].filter(Boolean).join('/');
+
+    return (
+        <>
+            <TouchableOpacity
+                style={[sidebarStyles.row, isSelected && sidebarStyles.rowSelected]}
+                onPress={handlePress}
+            >
+                <View style={sidebarStyles.topLine}>
+                    {hasCircuits ? (
+                        <TouchableOpacity
+                            onPress={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                            style={sidebarStyles.expandBtn}
+                        >
+                            <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={10} color="#888" />
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={sidebarStyles.expandBtn} />
+                    )}
+                    <Text style={sidebarStyles.portBadge}>P{session.port}</Text>
+                    <Text style={sidebarStyles.callText} numberOfLines={1}>
+                        {session.initiator} {'↔'} {session.responder}
+                    </Text>
+                </View>
+                <View style={sidebarStyles.bottomLine}>
+                    <Text style={[sidebarStyles.stateText, { color: stateColors[session.state] || '#666' }]}>
+                        {session.state}
+                    </Text>
+                    <Text style={sidebarStyles.dimText}>
+                        {formatDuration(session.startedAt, session.endedAt)}
+                    </Text>
+                    <Text style={sidebarStyles.dimText}>
+                        I:{session.iFramesSent}/{session.iFramesReceived}
+                    </Text>
+                    <Text style={[sidebarStyles.dimText, { color: getRetryColor(session.retryRate) }]}>
+                        Ret:{session.retryCount}
+                    </Text>
+                    {protoFlags ? <Text style={sidebarStyles.protoText}>{protoFlags}</Text> : null}
+                </View>
+            </TouchableOpacity>
+            {expanded && hasCircuits && session.circuits.map((circuit) => (
+                <View key={circuit.id} style={sidebarStyles.circuitRow}>
+                    <Text style={sidebarStyles.circuitText} numberOfLines={1}>
+                        {'  ↳ '}{circuit.remote} {'→'} {circuit.local}
+                    </Text>
+                    <Text style={[sidebarStyles.circuitState, { color: stateColors[circuit.state] || '#666' }]}>
+                        {circuit.state} | {circuit.segsSent}/{circuit.segsRcvd}
+                    </Text>
+                </View>
+            ))}
+        </>
+    );
+}
+
 function SessionRow({ session, filterState, setFilterState }) {
     const [expanded, setExpanded] = useState(false);
     const isSelected = filterState.sessionId === session.id;
@@ -105,7 +176,7 @@ function SessionRow({ session, filterState, setFilterState }) {
     );
 }
 
-export default function SessionPanel({ sessions, filterState, setFilterState, visible }) {
+export default function SessionPanel({ sessions, filterState, setFilterState, visible, sidebar }) {
     if (!visible) return null;
 
     const sortedSessions = useMemo(() => {
@@ -121,6 +192,32 @@ export default function SessionPanel({ sessions, filterState, setFilterState, vi
         });
         return sorted.slice(0, 50);
     }, [sessions]);
+
+    if (sidebar) {
+        return (
+            <View style={sidebarStyles.container}>
+                <View style={sidebarStyles.header}>
+                    <Text style={sidebarStyles.headerTitle}>Sessions</Text>
+                    <Text style={sidebarStyles.headerCount}>{sortedSessions.length}</Text>
+                </View>
+                <ScrollView style={sidebarStyles.scrollView}>
+                    {sortedSessions.map((session) => (
+                        <SidebarSessionRow
+                            key={session.id}
+                            session={session}
+                            filterState={filterState}
+                            setFilterState={setFilterState}
+                        />
+                    ))}
+                    {sortedSessions.length === 0 && (
+                        <View style={sidebarStyles.emptyRow}>
+                            <Text style={sidebarStyles.emptyText}>No sessions</Text>
+                        </View>
+                    )}
+                </ScrollView>
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>
@@ -153,6 +250,115 @@ export default function SessionPanel({ sessions, filterState, setFilterState, vi
         </View>
     );
 }
+
+const sidebarStyles = StyleSheet.create({
+    container: {
+        width: 320,
+        backgroundColor: '#252525',
+        borderLeftWidth: 1,
+        borderLeftColor: '#333',
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        backgroundColor: '#1e1e1e',
+        borderBottomWidth: 1,
+        borderBottomColor: '#333',
+    },
+    headerTitle: {
+        color: '#888',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    headerCount: {
+        color: '#666',
+        fontSize: 10,
+    },
+    scrollView: {
+        flex: 1,
+    },
+    row: {
+        paddingVertical: 5,
+        paddingHorizontal: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#333',
+    },
+    rowSelected: {
+        borderLeftWidth: 2,
+        borderLeftColor: '#4ade80',
+    },
+    topLine: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 2,
+    },
+    expandBtn: {
+        width: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    portBadge: {
+        color: '#888',
+        fontSize: 10,
+        fontFamily: '"Courier New", Courier, monospace',
+        marginRight: 6,
+    },
+    callText: {
+        color: '#ccc',
+        fontSize: 11,
+        fontFamily: '"Courier New", Courier, monospace',
+        flex: 1,
+    },
+    bottomLine: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingLeft: 14,
+        gap: 8,
+    },
+    stateText: {
+        fontSize: 10,
+        fontFamily: '"Courier New", Courier, monospace',
+    },
+    dimText: {
+        color: '#888',
+        fontSize: 10,
+        fontFamily: '"Courier New", Courier, monospace',
+    },
+    protoText: {
+        color: '#6b7280',
+        fontSize: 10,
+        fontFamily: '"Courier New", Courier, monospace',
+    },
+    circuitRow: {
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        paddingLeft: 22,
+        backgroundColor: '#1e1e1e',
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#333',
+    },
+    circuitText: {
+        color: '#aaa',
+        fontSize: 10,
+        fontFamily: '"Courier New", Courier, monospace',
+    },
+    circuitState: {
+        fontSize: 10,
+        fontFamily: '"Courier New", Courier, monospace',
+    },
+    emptyRow: {
+        paddingVertical: 20,
+        alignItems: 'center',
+    },
+    emptyText: {
+        color: '#666',
+        fontSize: 11,
+        fontStyle: 'italic',
+    },
+});
 
 const styles = StyleSheet.create({
     container: {
