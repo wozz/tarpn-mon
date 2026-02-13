@@ -146,7 +146,7 @@ func TestGetNeighborCallsigns(t *testing.T) {
 	// Port 3: single entry
 	insertNeighbor(base.Add(5*time.Minute), "N0CALL", 2, 3)
 
-	result, err := s.GetNeighborCallsigns()
+	result, err := s.GetNeighborCallsigns("TESTNODE")
 	if err != nil {
 		t.Fatalf("GetNeighborCallsigns: %v", err)
 	}
@@ -171,10 +171,52 @@ func TestGetNeighborCallsigns(t *testing.T) {
 	}
 }
 
+func TestGetNeighborCallsignsExcludesLocal(t *testing.T) {
+	s := newTestStorage(t)
+
+	insertNeighbor := func(ts time.Time, call string, reportedPort, rxPort int) {
+		t.Helper()
+		_, err := s.db.Exec(`
+			INSERT INTO link_stats_neighbor
+			(timestamp, callsign, reported_port, rx_port,
+			 l2_rxed, l2_sent, l2_timeouts, rej_rxed,
+			 rx_crc_errors, frames_abandoned, active_tx_pct, active_busy_pct)
+			VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0)`,
+			ts.UTC().Format(time.RFC3339), call, reportedPort, rxPort)
+		if err != nil {
+			t.Fatalf("insert neighbor: %v", err)
+		}
+	}
+
+	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	// Port 1: neighbor entry, then our own CQ (most recent)
+	insertNeighbor(base, "N3LLO-2", 1, 1)
+	insertNeighbor(base.Add(10*time.Minute), "WA2M-2", 3, 1)
+
+	// Port 2: only our own CQ — should not appear
+	insertNeighbor(base, "WA2M-2", 1, 2)
+
+	result, err := s.GetNeighborCallsigns("WA2M-2")
+	if err != nil {
+		t.Fatalf("GetNeighborCallsigns: %v", err)
+	}
+
+	// Port 1: should return N3LLO-2 (most recent non-local)
+	if result[1] != "N3LLO-2" {
+		t.Errorf("port 1: got %q, want %q", result[1], "N3LLO-2")
+	}
+
+	// Port 2: should not exist (only local CQ)
+	if _, ok := result[2]; ok {
+		t.Errorf("port 2: should not be present, got %q", result[2])
+	}
+}
+
 func TestGetNeighborCallsignsEmpty(t *testing.T) {
 	s := newTestStorage(t)
 
-	result, err := s.GetNeighborCallsigns()
+	result, err := s.GetNeighborCallsigns("N0CALL")
 	if err != nil {
 		t.Fatalf("GetNeighborCallsigns: %v", err)
 	}

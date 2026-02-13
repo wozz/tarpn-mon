@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -785,10 +786,15 @@ func (s *LinkStatsStorage) Get15MinSummaryRange(portNum int, since, until time.T
 
 // GetNeighborCallsigns returns the most recent neighbor callsign per rx_port
 // from CQ broadcast data in the link_stats_neighbor table.
+// The localCall parameter excludes our own callsign (since we also receive
+// our own CQ broadcasts on the monitor port).
 // Returns a map of rx_port → callsign.
-func (s *LinkStatsStorage) GetNeighborCallsigns() (map[int]string, error) {
+func (s *LinkStatsStorage) GetNeighborCallsigns(localCall string) (map[int]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	// Normalize: strip SSID for comparison since CQ callsigns may differ
+	baseCall := strings.Split(strings.ToUpper(strings.TrimSpace(localCall)), "-")[0]
 
 	rows, err := s.db.Query(`
 		SELECT n.rx_port, n.callsign
@@ -796,8 +802,10 @@ func (s *LinkStatsStorage) GetNeighborCallsigns() (map[int]string, error) {
 		INNER JOIN (
 			SELECT rx_port, MAX(timestamp) as max_ts
 			FROM link_stats_neighbor
+			WHERE callsign NOT LIKE ? || '%'
 			GROUP BY rx_port
-		) latest ON n.rx_port = latest.rx_port AND n.timestamp = latest.max_ts`)
+		) latest ON n.rx_port = latest.rx_port AND n.timestamp = latest.max_ts`,
+		baseCall)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query neighbor callsigns: %w", err)
 	}

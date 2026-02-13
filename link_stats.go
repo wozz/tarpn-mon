@@ -583,7 +583,7 @@ func (c *LinkStatsCollector) sendPerLinkBulletins(dayStart, dayEnd time.Time, sy
 		return
 	}
 
-	neighbors, err := c.storage.GetNeighborCallsigns()
+	neighbors, err := c.storage.GetNeighborCallsigns(c.config.Callsign)
 	if err != nil {
 		statsLog.Warnw("Per-link bulletin: failed to get neighbor callsigns", "error", err)
 		neighbors = make(map[int]string)

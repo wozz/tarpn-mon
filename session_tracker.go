@@ -278,6 +278,15 @@ func (st *SessionTracker) HandleL2Trace(event *L2TraceEvent) {
 
 	// I-frame handling
 	if event.L2Type == "I" {
+		// I-frames can only flow on an established connection — if we're still
+		// in "connecting" we missed the SABM/UA handshake, so promote now.
+		if sess.State == SessionConnecting {
+			sess.State = SessionConnected
+			t := now
+			sess.StartedAt = &t
+			stateChange = true
+		}
+
 		if event.Direction == "sent" {
 			sess.IFramesSent++
 		} else {

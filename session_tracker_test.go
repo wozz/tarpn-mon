@@ -826,3 +826,38 @@ func TestL2TraceUIFramesIgnored(t *testing.T) {
 		t.Errorf("Expected 0 change notifications from UI frames, got %d", rec.count())
 	}
 }
+
+func TestL2TraceIFramePromotesConnecting(t *testing.T) {
+	rec := &changeRecorder{}
+	tracker := NewSessionTracker(100, rec.record, testLogger())
+
+	// Send an RR frame first — creates session in "connecting" state
+	tracker.HandleL2Trace(&L2TraceEvent{
+		Type: "l2_trace", Serial: 1, Direction: "rcvd",
+		Port: "1", Source: "N3LLO-2", Dest: "WA2M-2",
+		L2Type: "RR",
+	})
+
+	sess := tracker.FindSessionForFrame(1, "WA2M-2", "N3LLO-2")
+	if sess == nil {
+		t.Fatal("Expected session to exist")
+	}
+	if sess.State != SessionConnecting {
+		t.Errorf("Expected connecting, got %s", sess.State)
+	}
+
+	// Now send an I-frame — should promote to "connected"
+	tracker.HandleL2Trace(&L2TraceEvent{
+		Type: "l2_trace", Serial: 2, Direction: "sent",
+		Port: "1", Source: "WA2M-2", Dest: "N3LLO-2",
+		L2Type: "I", PID: 0xCF, TSeq: 0,
+	})
+
+	sess = tracker.FindSessionForFrame(1, "WA2M-2", "N3LLO-2")
+	if sess.State != SessionConnected {
+		t.Errorf("Expected connected after I-frame, got %s", sess.State)
+	}
+	if sess.StartedAt == nil {
+		t.Error("Expected StartedAt to be set")
+	}
+}
