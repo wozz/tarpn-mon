@@ -1,0 +1,39 @@
+[Unit]
+Description=TARPN NetROM chat server
+Documentation=https://github.com/wozz/tarpn-mon
+
+PartOf=tarpn.target
+
+# Ordering only. tarpn-chat attaches to LinBPQ's NetROM host port and handles
+# reconnection itself, so it must not be stopped or restarted when the engine
+# restarts - that would drop every chat session on the node.
+After=tarpn-linbpq.service
+After=network.target
+
+ConditionPathExists=@TARPN_ETC@/tarpn-chat.toml
+
+[Service]
+Type=simple
+User=@TARPN_USER@
+Group=@TARPN_GROUP@
+WorkingDirectory=@TARPN_STATE@/chat
+ExecStart=@TARPN_PREFIX@/modules/tarpn-chat/bin/tarpn-chat --config @TARPN_ETC@/tarpn-chat.toml
+
+Restart=always
+RestartSec=5
+
+Environment=RUST_LOG=info
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=@TARPN_STATE@/chat
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tarpn-chat
+
+[Install]
+WantedBy=tarpn.target

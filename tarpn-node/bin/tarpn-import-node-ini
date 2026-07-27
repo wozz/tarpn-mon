@@ -1,0 +1,136 @@
+#!/bin/bash
+# tarpn-import-node-ini - convert a legacy /home/pi/node.ini into node.conf.
+#
+# The legacy file is a flat list of "key:value" lines written by
+# configure_node_ini.sh. This maps the keys that still mean something onto the
+# documented node.conf schema, keeping the example file's comments so the
+# result is readable rather than a bare dump of values.
+#
+# The source file is only read, never modified, so the legacy installation
+# stays intact and you can roll back by just not starting this node.
+#
+# Usage: tarpn-import-node-ini /home/pi/node.ini
+
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARPN_PREFIX="${TARPN_PREFIX:-$(cd "${SELF_DIR}/.." && pwd)}"
+. "${TARPN_PREFIX}/lib/tarpn-common.sh"
+
+SRC="${1:-}"
+[ -n "$SRC" ] || die "usage: tarpn-import-node-ini /path/to/node.ini"
+[ -f "$SRC" ] || die "no such file: ${SRC}"
+
+EXAMPLE="${TARPN_PREFIX}/modules/linbpq/config/node.conf.example"
+[ -f "$EXAMPLE" ] || die "cannot find ${EXAMPLE}"
+
+# Read a "key:value" line from node.ini. Legacy files use NOT_SET / not_set as
+# the empty marker.
+ini() {
+    local key="$1" line value
+    line="$(grep -E "^${key}:" "$SRC" 2>/dev/null | head -n1)" || true
+    [ -n "$line" ] || return 0
+    value="${line#*:}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$value" in
+        NOT_SET|not_set|NOTSET|none|NONE) return 0 ;;
+    esac
+    printf '%s' "$value"
+}
+
+TMP="$(mktemp "${TMPDIR:-/tmp}/node.conf.XXXXXX")"
+trap 'rm -f "$TMP"' EXIT
+cp "$EXAMPLE" "$TMP"
+
+set_if() {
+    local key="$1" value="$2"
+    [ -n "$value" ] || return 0
+    conf_set "$TMP" "$key" "$value"
+}
+
+log_step "Reading ${SRC}"
+
+# --- identity --------------------------------------------------------------
+set_if NODE_CALL       "$(call_upper "$(ini nodecall)")"
+set_if NODE_NAME       "$(call_upper "$(ini nodename)")"
+set_if OP_CALL         "$(call_upper "$(ini local-op-callsign)")"
+set_if SYSOP_PASSWORD  "$(ini sysop-password)"
+set_if LATLON          "$(ini latlon)"
+set_if CTEXT           "$(ini ctext)"
+
+for i in 1 2 3 4 5 6 7 8; do
+    conf_set "$TMP" "INFO${i}" "$(ini "infomessage${i}")"
+done
+
+# --- applications ----------------------------------------------------------
+conf_set "$TMP" BBS_CALL  "$(call_upper "$(ini bbscall)")"
+conf_set "$TMP" CHAT_CALL "$(call_upper "$(ini chatcall)")"
+
+# The legacy stack's TARPN Home applications and inetd-backed node commands
+# are not installed by this system, so they stay off regardless of what the
+# old config declared.
+conf_set "$TMP" LEGACY_TARPN_APPS false
+conf_set "$TMP" HOST_MODE disabled
+
+# --- NinoTNC slots ---------------------------------------------------------
+ports=0
+for L in A B C D E F G H I J; do
+    neighbor="$(call_upper "$(ini "neighbor${L}")")"
+    frack="$(ini "frack${L}")"
+    conf_set "$TMP" "PORT_${L}_NEIGHBOR" "$neighbor"
+    conf_set "$TMP" "PORT_${L}_FRACK" "${frack:-9000}"
+    [ -n "$neighbor" ] && { ports=$((ports + 1)); log_dim "slot ${L}: ${neighbor} (FRACK ${frack:-9000})"; }
+done
+
+# --- manual serial ports ---------------------------------------------------
+for N in 11 12; do
+    case "$(ini "usb-port${N}")" in
+        ENABLE|enable|ENABLED|enabled) enabled=true ;;
+        *) enabled=false ;;
+    esac
+    conf_set "$TMP" "PORT_${N}_ENABLED" "$enabled"
+    set_if "PORT_${N}_DEV"      "$(ini "portdev${N}")"
+    set_if "PORT_${N}_SPEED"    "$(ini "speed${N}")"
+    set_if "PORT_${N}_TXDELAY"  "$(ini "txdelay${N}")"
+    set_if "PORT_${N}_FRACK"    "$(ini "frack${N}")"
+    conf_set "$TMP" "PORT_${N}_NEIGHBOR" "$(call_upper "$(ini "neighbor${N}")")"
+
+    # Legacy kissoptions is inverted relative to the name: "disable" means
+    # disable the KISS parameter push, i.e. emit KISSOPTIONS=NOPARAMS.
+    case "$(ini "kissoptions${N}")" in
+        disable|DISABLE) conf_set "$TMP" "PORT_${N}_KISS_PARAMS" false ;;
+        enable|ENABLE)   conf_set "$TMP" "PORT_${N}_KISS_PARAMS" true ;;
+    esac
+
+    if [ "$enabled" = true ]; then
+        ports=$((ports + 1))
+        log_dim "port ${N}: $(ini "neighbor${N}") on $(ini "portdev${N}")"
+    fi
+done
+
+log_info "Mapped ${ports} radio port(s)"
+
+# --- install ---------------------------------------------------------------
+if [ -f "$TARPN_NODE_CONF" ]; then
+    backup="${TARPN_NODE_CONF}.bak.$(date +%Y%m%d-%H%M%S)"
+    run cp "$TARPN_NODE_CONF" "$backup"
+    log_info "Backed up existing config to ${backup}"
+fi
+
+if [ "$TARPN_DRY_RUN" = true ]; then
+    log_dim "would write ${TARPN_NODE_CONF}"
+    exit 0
+fi
+
+install -m 0644 "$TMP" "$TARPN_NODE_CONF"
+log_info "Wrote ${TARPN_NODE_CONF}"
+
+echo
+if "${TARPN_PREFIX}/modules/linbpq/bin/tarpn-bpq-genconfig" --check; then
+    log_info "Imported config validates. Review it, then: sudo tarpnctl apply"
+else
+    log_warn "Imported config has problems - edit it with: sudo tarpnctl config"
+    log_dim "the original ${SRC} was not modified"
+    exit 1
+fi

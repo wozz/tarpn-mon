@@ -1,0 +1,512 @@
+#!/bin/bash
+# tarpnctl - manage a modular TARPN node.
+#
+# Replaces the parts of the legacy `tarpn` command that this installation
+# still needs. Service control is delegated to systemd rather than
+# reimplemented: there are no flag files, no semaphores and no killall.
+#
+#   tarpn service start   ->  tarpnctl start        (systemctl start tarpn.target)
+#   tarpn service stop    ->  tarpnctl stop
+#   tarpn config          ->  tarpnctl config
+#   BACKGROUND:ON         ->  systemctl enable tarpn.target
+
+set -euo pipefail
+
+TARPN_PREFIX="${TARPN_PREFIX:-/opt/tarpn}"
+. "${TARPN_PREFIX}/lib/tarpn-common.sh"
+. "${TARPN_PREFIX}/lib/tarpn-modules.sh"
+
+usage() {
+    cat <<'EOF'
+tarpnctl - manage a modular TARPN node
+
+Node control
+  status                 show node and module state
+  start | stop | restart control the whole node (tarpn.target)
+  start  <module>        control one module
+  stop   <module>
+  restart <module>
+  enable  [module]       start at boot
+  disable [module]       do not start at boot
+  logs [module] [-f]     journalctl for the node or one module
+
+Diagnostics
+  doctor                 check this host can run everything, and say what cannot
+
+Configuration
+  config                 edit node.conf, validate, and apply
+  check                  validate node.conf without changing anything
+  apply                  regenerate bpq32.cfg and restart what needs it
+  show                   print the generated bpq32.cfg
+  import-node-ini PATH   convert a legacy node.ini into node.conf
+
+Modules
+  list                   list available and installed modules
+  install <module>...    install and enable a module
+  remove  <module>       remove a module (configuration is kept)
+  update  [module]...    reinstall units and refresh binaries
+
+Options
+  --dry-run              show what would happen, change nothing
+  --help                 this message
+EOF
+}
+
+# ---------------------------------------------------------------------------
+
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run) TARPN_DRY_RUN=true; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *) ARGS+=("$1"); shift ;;
+    esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+[ $# -gt 0 ] || { usage; exit 1; }
+
+CMD="$1"; shift
+
+need_root() {
+    [ "$(id -u)" -eq 0 ] || die "'tarpnctl ${CMD}' needs root (use sudo)"
+}
+
+genconfig() {
+    "${TARPN_PREFIX}/modules/linbpq/bin/tarpn-bpq-genconfig" "$@"
+}
+
+# ---------------------------------------------------------------------------
+
+cmd_status() {
+    local unit state
+
+    printf '%sNode%s\n' "$_C_BLU" "$_C_OFF"
+    if unit_is_active tarpn.target; then state="running"; else state="stopped"; fi
+    printf '  tarpn.target   %s' "$state"
+    unit_is_enabled tarpn.target && printf ', enabled at boot' || printf ', not enabled at boot'
+    printf '\n'
+
+    if [ -f "$TARPN_NODE_CONF" ]; then
+        printf '  callsign       %s (%s)\n' \
+            "$(conf_get "$TARPN_NODE_CONF" NODE_CALL '?')" \
+            "$(conf_get "$TARPN_NODE_CONF" NODE_NAME '?')"
+    elif module_is_installed linbpq; then
+        printf '  callsign       %snot configured%s - run: sudo tarpnctl config\n' "$_C_YEL" "$_C_OFF"
+    else
+        printf '  engine         managed outside this installation\n'
+    fi
+    printf '  user           %s\n' "$(resolve_tarpn_user)"
+
+    printf '\n%sModules%s\n' "$_C_BLU" "$_C_OFF"
+    local name
+    for name in $(module_list_available); do
+        module_is_installed "$name" || continue
+        printf '  %-14s' "$name"
+        for unit in $(module_enable_units "$name"); do
+            if unit_is_active "$unit"; then
+                printf ' %s%s active%s' "$_C_GRN" "$unit" "$_C_OFF"
+            elif unit_is_enabled "$unit"; then
+                printf ' %s%s enabled, not running%s' "$_C_YEL" "$unit" "$_C_OFF"
+            else
+                printf ' %s%s inactive%s' "$_C_DIM" "$unit" "$_C_OFF"
+            fi
+        done
+        printf '\n'
+    done
+}
+
+# ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+# Everything this installation ships is statically linked and OS-version
+# agnostic, so the interesting questions are all about the host: is the
+# architecture one we build for, is systemd new enough, and - the usual
+# answer - is there a linbpq binary that matches the userland.
+
+DOCTOR_FAIL=0
+DOCTOR_WARN=0
+ok()   { printf '  %s[ ok ]%s %s\n' "$_C_GRN" "$_C_OFF" "$*"; }
+warn() { printf '  %s[warn]%s %s\n' "$_C_YEL" "$_C_OFF" "$*"; DOCTOR_WARN=$((DOCTOR_WARN + 1)); }
+bad()  { printf '  %s[fail]%s %s\n' "$_C_RED" "$_C_OFF" "$*"; DOCTOR_FAIL=$((DOCTOR_FAIL + 1)); }
+hint() { printf '         %s%s%s\n' "$_C_DIM" "$*" "$_C_OFF"; }
+
+# Minimum systemd for the directives the units use. RestrictSUIDSGID (242) is
+# the newest of them; Debian 11 already ships 247.
+SYSTEMD_MIN=242
+
+cmd_doctor() {
+    local v
+
+    printf '%sHost%s\n' "$_C_BLU" "$_C_OFF"
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        ok "$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-$NAME $VERSION_ID}")"
+    else
+        warn "cannot identify the OS (no /etc/os-release)"
+    fi
+
+    local arch bits
+    arch="$(detect_arch)"
+    bits="$(getconf LONG_BIT 2>/dev/null || echo '?')"
+    case "$arch" in
+        unknown:*)
+            bad "unsupported architecture: ${arch#unknown:}"
+            hint "we build for arm32 (armhf), arm64 and amd64" ;;
+        *)
+            ok "architecture ${arch} (${bits}-bit userland on $(uname -m) kernel)" ;;
+    esac
+
+    v="$(systemctl --version 2>/dev/null | head -1 | awk '{print $2}' | tr -cd '0-9')"
+    if [ -z "$v" ]; then
+        bad "systemd not found"
+    elif [ "$v" -ge "$SYSTEMD_MIN" ] 2>/dev/null; then
+        ok "systemd ${v} (need ${SYSTEMD_MIN}+)"
+    else
+        bad "systemd ${v} is too old; the units need ${SYSTEMD_MIN}+"
+        hint "RestrictSUIDSGID and ProtectSystem=strict are the newest directives used"
+    fi
+
+    if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then
+        ok "bash ${BASH_VERSION%%(*}"
+    else
+        bad "bash ${BASH_VERSION%%(*} is too old; 4.0+ required"
+    fi
+
+    # --- account ----------------------------------------------------------
+    printf '\n%sAccount%s\n' "$_C_BLU" "$_C_OFF"
+    local user
+    user="$(resolve_tarpn_user)"
+    if id "$user" >/dev/null 2>&1; then
+        ok "TARPN_USER=${user} exists"
+        if id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx dialout; then
+            ok "${user} is in the dialout group"
+        else
+            bad "${user} is not in the dialout group; USB TNCs will not be readable"
+            hint "sudo usermod -aG dialout ${user}   (then log out and back in)"
+        fi
+    else
+        bad "TARPN_USER=${user} does not exist"
+        hint "create it, or set TARPN_USER in ${TARPN_CONF}"
+    fi
+
+    # --- node engine ------------------------------------------------------
+    printf '\n%sNode engine%s\n' "$_C_BLU" "$_C_OFF"
+    local bpq_home binary desc
+    bpq_home="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+    binary="${bpq_home}/linbpq"
+
+    # The linbpq module is optional: this installation is perfectly usable as
+    # monitoring bolted onto a node someone else's stack runs. Do not report a
+    # missing binary as a fault when we were never asked to manage the engine.
+    if ! module_is_installed linbpq; then
+        ok "the linbpq module is not installed; the engine is managed elsewhere"
+        if [ -n "$(command -v pgrep)" ] && pgrep -x linbpq >/dev/null 2>&1; then
+            ok "a linbpq process is running"
+        else
+            warn "no linbpq process found; monitoring will have nothing to connect to"
+        fi
+    elif [ ! -f "$binary" ]; then
+        bad "no linbpq at ${binary}"
+        hint "LinBPQ is third-party and is not redistributed by this installer."
+        if desc="$(linbpq_upstream_url "$arch")"; then
+            hint "the ${arch} build is at ${desc}"
+            hint "sudo tarpnctl update linbpq   will fetch it (LINBPQ_SOURCE=auto)"
+        else
+            hint "no upstream build is published for ${arch}; supply one and set"
+            hint "LINBPQ_SOURCE in ${TARPN_CONF}"
+        fi
+    else
+        if check_linbpq_arch "$binary" "$arch" >/dev/null 2>&1; then
+            ok "linbpq present and matches the ${arch} userland"
+        else
+            check_linbpq_arch "$binary" "$arch" 2>&1 | sed 's/^/  /'
+            DOCTOR_FAIL=$((DOCTOR_FAIL + 1))
+        fi
+
+        # NETROMPORT, which the tarpn-chat module needs, landed in 6.0.25.
+        if command -v strings >/dev/null 2>&1; then
+            local ver minor
+            ver="$(strings "$binary" 2>/dev/null | grep -oE '6\.0\.[0-9]+\.[0-9]+' | head -1)"
+            if [ -n "$ver" ]; then
+                minor="$(printf '%s' "$ver" | cut -d. -f3)"
+                if [ "$minor" -ge 25 ] 2>/dev/null; then
+                    ok "linbpq ${ver} supports NETROMPORT"
+                elif module_is_installed tarpn-chat; then
+                    bad "linbpq ${ver} has no NETROMPORT, which tarpn-chat needs (6.0.25+)"
+                else
+                    warn "linbpq ${ver} has no NETROMPORT; the tarpn-chat module needs 6.0.25+"
+                fi
+            fi
+        fi
+    fi
+
+    # --- radios -----------------------------------------------------------
+    printf '\n%sRadios%s\n' "$_C_BLU" "$_C_OFF"
+    local acm
+    acm="$(find /dev -maxdepth 1 -name 'ttyACM*' 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$acm" -gt 0 ]; then
+        ok "${acm} /dev/ttyACM* device(s) present"
+    else
+        warn "no /dev/ttyACM* devices; NinoTNC slots A..J will have nothing to talk to"
+    fi
+
+    # --- optional features ------------------------------------------------
+    printf '\n%sOptional%s\n' "$_C_BLU" "$_C_OFF"
+    if command -v sqlite3 >/dev/null 2>&1; then
+        ok "sqlite3 $(sqlite3 --version 2>/dev/null | cut -d' ' -f1) (TRR)"
+    else
+        warn "sqlite3 not installed; the TRR node command cannot run"
+        hint "sudo apt install sqlite3 && sudo tarpnctl update node-commands"
+    fi
+
+    local lt found=""
+    for lt in "$(conf_get "$TARPN_CONF" LINKTEST_BINARY "")" \
+              "${TARPN_PREFIX}/modules/node-commands/bin/linktest" \
+              /usr/local/sbin/linktest /home/pi/linktest-app; do
+        [ -n "$lt" ] && [ -x "$lt" ] && { found="$lt"; break; }
+    done
+    if [ -n "$found" ]; then
+        ok "linktest binary present (LINKTEST)"
+    else
+        warn "no linktest binary; the LINKTEST node command is unavailable"
+        hint "sudo tarpnctl update node-commands   will install it"
+    fi
+
+    # --- configuration ----------------------------------------------------
+    printf '\n%sConfiguration%s\n' "$_C_BLU" "$_C_OFF"
+    if ! module_is_installed linbpq; then
+        # node.conf only drives bpq32.cfg generation, which we are not doing.
+        if [ -f "$TARPN_NODE_CONF" ]; then
+            ok "node.conf present (unused: the linbpq module is not installed)"
+        else
+            ok "no node.conf needed without the linbpq module"
+        fi
+    elif [ ! -f "$TARPN_NODE_CONF" ]; then
+        warn "no ${TARPN_NODE_CONF} yet"
+        hint "sudo tarpnctl config    (or: sudo tarpnctl import-node-ini /home/pi/node.ini)"
+    elif genconfig --check >/dev/null 2>&1; then
+        ok "node.conf is valid"
+    else
+        bad "node.conf has errors"
+        hint "run: tarpnctl check"
+    fi
+
+    # --- legacy -----------------------------------------------------------
+    local legacy=() u
+    for u in tarpn.service home.service tarpn_mon.service statusmonitor.service \
+             rx_tarpnstat.service neighbor_port_association.service; do
+        [ -f "/etc/systemd/system/${u}" ] && legacy+=("$u")
+    done
+    if [ ${#legacy[@]} -gt 0 ]; then
+        printf '\n%sLegacy TARPN%s\n' "$_C_BLU" "$_C_OFF"
+        local active=0
+        for u in "${legacy[@]}"; do unit_is_active "$u" && active=$((active + 1)); done
+        if [ "$active" -gt 0 ]; then
+            bad "${active} legacy TARPN service(s) still running"
+            hint "both stacks would drive the same radios:"
+            hint "sudo systemctl disable --now ${legacy[*]}"
+        else
+            warn "${#legacy[@]} legacy TARPN unit(s) installed but not running"
+        fi
+    fi
+
+    # --- verdict ----------------------------------------------------------
+    echo
+    if [ "$DOCTOR_FAIL" -gt 0 ]; then
+        log_err "${DOCTOR_FAIL} problem(s) will stop this node working, ${DOCTOR_WARN} warning(s)"
+        return 1
+    elif [ "$DOCTOR_WARN" -gt 0 ]; then
+        log_warn "${DOCTOR_WARN} warning(s); the node will run but not everything is available"
+    else
+        log_info "no problems found"
+    fi
+}
+
+cmd_list() {
+    printf '%-14s %-10s %s\n' MODULE STATUS SUMMARY
+    local name status
+    for name in $(module_list_available); do
+        if module_is_installed "$name"; then status="installed"; else status="available"; fi
+        printf '%-14s %-10s %s\n' "$name" "$status" "$(module_meta "$name" SUMMARY '')"
+    done
+}
+
+cmd_lifecycle() {
+    local action="$1"; shift
+    need_root
+    if [ $# -eq 0 ]; then
+        run systemctl "$action" tarpn.target
+    else
+        local n
+        for n in "$@"; do module_lifecycle "$action" "$n"; done
+    fi
+}
+
+cmd_enable() {
+    need_root
+    if [ $# -eq 0 ]; then
+        run systemctl enable tarpn.target
+    else
+        local n; for n in "$@"; do module_enable "$n"; done
+    fi
+}
+
+cmd_disable() {
+    need_root
+    if [ $# -eq 0 ]; then
+        run systemctl disable tarpn.target
+    else
+        local n; for n in "$@"; do module_disable "$n"; done
+    fi
+}
+
+cmd_logs() {
+    local follow=() units=() a
+    for a in "$@"; do
+        case "$a" in
+            -f|--follow) follow=(-f) ;;
+            *) units+=("$a") ;;
+        esac
+    done
+    local args=() u
+    if [ ${#units[@]} -eq 0 ]; then
+        # Everything the node owns, in one stream.
+        for u in $(module_list_available); do
+            module_is_installed "$u" || continue
+            local unit
+            for unit in $(module_units "$u"); do
+                case "$unit" in *.service) args+=(-u "$unit") ;; esac
+            done
+        done
+    else
+        for u in "${units[@]}"; do
+            local unit
+            for unit in $(module_units "$u"); do
+                case "$unit" in *.service) args+=(-u "$unit") ;; esac
+            done
+        done
+    fi
+    [ ${#args[@]} -gt 0 ] || die "no services to show logs for"
+    exec journalctl "${args[@]}" ${follow[@]+"${follow[@]}"} -n 200
+}
+
+cmd_check() {
+    genconfig --check
+}
+
+cmd_apply() {
+    need_root
+    log_step "Regenerating bpq32.cfg"
+    genconfig
+
+    # Only restart what actually consumes the config. Monitoring and chat are
+    # deliberately not restarted: they reconnect on their own and restarting
+    # them would throw away buffered history.
+    if unit_is_active tarpn-linbpq.service; then
+        log_step "Restarting the node engine to pick up the new config"
+        run systemctl restart tarpn-linbpq.service
+    else
+        log_dim "node engine is not running; the new config applies on next start"
+    fi
+}
+
+cmd_config() {
+    need_root
+    if [ ! -f "$TARPN_NODE_CONF" ]; then
+        local example="${TARPN_PREFIX}/modules/linbpq/config/node.conf.example"
+        [ -f "$example" ] || die "no node.conf and no example to seed it from"
+        run install -m 0644 "$example" "$TARPN_NODE_CONF"
+        log_info "Created ${TARPN_NODE_CONF}"
+    fi
+
+    "${EDITOR:-nano}" "$TARPN_NODE_CONF"
+
+    if genconfig --check; then
+        cmd_apply
+    else
+        log_warn "node.conf still has errors; nothing was applied"
+        log_dim "re-run 'sudo tarpnctl config' to fix it"
+        exit 1
+    fi
+}
+
+cmd_show() {
+    genconfig --stdout
+}
+
+cmd_install() {
+    need_root
+    [ $# -gt 0 ] || die "usage: tarpnctl install <module>..."
+    local name
+    for name in $(resolve_module_list "$@"); do
+        module_install "$name"
+    done
+    systemd_reload
+    for name in $(resolve_module_list "$@"); do
+        module_enable "$name"
+    done
+    log_info "Done. 'tarpnctl status' to review, 'tarpnctl start' to bring the node up."
+}
+
+cmd_remove() {
+    need_root
+    [ $# -gt 0 ] || die "usage: tarpnctl remove <module>"
+    local name
+    for name in "$@"; do module_remove "$name"; done
+}
+
+cmd_update() {
+    need_root
+    local names=("$@") name
+    if [ ${#names[@]} -eq 0 ]; then
+        names=()
+        for name in $(module_list_available); do
+            module_is_installed "$name" && names+=("$name")
+        done
+    fi
+    [ ${#names[@]} -gt 0 ] || die "nothing installed to update"
+
+    for name in "${names[@]}"; do
+        module_install "$name"
+    done
+    systemd_reload
+
+    # Restart only what was already running, so an update never starts
+    # something the operator had deliberately stopped.
+    for name in "${names[@]}"; do
+        local unit
+        for unit in $(module_enable_units "$name"); do
+            unit_restart_if_active "$unit"
+        done
+    done
+    log_info "Updated: ${names[*]}"
+}
+
+cmd_import() {
+    need_root
+    [ $# -eq 1 ] || die "usage: tarpnctl import-node-ini /path/to/node.ini"
+    "${TARPN_PREFIX}/bin/tarpn-import-node-ini" "$1"
+}
+
+# ---------------------------------------------------------------------------
+
+case "$CMD" in
+    status)          cmd_status ;;
+    doctor)          cmd_doctor ;;
+    list)            cmd_list ;;
+    start|stop|restart) cmd_lifecycle "$CMD" "$@" ;;
+    enable)          cmd_enable "$@" ;;
+    disable)         cmd_disable "$@" ;;
+    logs)            cmd_logs "$@" ;;
+    check)           cmd_check ;;
+    apply)           cmd_apply ;;
+    config)          cmd_config ;;
+    show)            cmd_show ;;
+    install)         cmd_install "$@" ;;
+    remove)          cmd_remove "$@" ;;
+    update)          cmd_update "$@" ;;
+    import-node-ini) cmd_import "$@" ;;
+    help)            usage ;;
+    *)               log_err "unknown command: ${CMD}"; usage; exit 1 ;;
+esac

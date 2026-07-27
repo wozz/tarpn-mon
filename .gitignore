@@ -10,8 +10,12 @@ static/js/dist/
 # Test coverage
 coverage/
 
-# Go binary
-tarpn-mon
+# Go binary from a bare `go build` in the repo root.
+# Anchored: an unanchored "tarpn-mon" also matches any directory of that name
+# at any depth, which silently excluded tarpn-node/modules/tarpn-mon/.
+# `make build` writes to dist/, which is ignored separately below.
+/tarpn-mon
+/linktest/linktest
 
 # Expo/React Native build output (embedded at build time)
 web-dist/

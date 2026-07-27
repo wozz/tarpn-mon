@@ -341,6 +341,24 @@ build_sendroutesviacq() {
     fi
 }
 
+build_linktest() {
+    log_step "Building linktest for $TARGET_ARCH..."
+
+    cd "$PROJECT_ROOT"
+
+    local make_target="build-linktest-${TARGET_ARCH}"
+    log_info "Running: make $make_target"
+    make "$make_target"
+
+    local output_name="linktest.linux-${TARGET_ARCH}"
+    if [ -f "$BUILD_DIR/$output_name" ]; then
+        log_info "Built: $BUILD_DIR/$output_name ($(du -h "$BUILD_DIR/$output_name" | cut -f1))"
+    else
+        log_error "Build failed - binary not created"
+        exit 1
+    fi
+}
+
 # =============================================================================
 # Package deploy scripts
 # =============================================================================
@@ -371,6 +389,14 @@ package_scripts() {
 # Create version manifest
 # =============================================================================
 
+# sha256 of a file, or "n/a" if it is not there. Written as a function because
+# `sha256sum f | cut ... || echo n/a` never fires the fallback - cut succeeds
+# regardless - and silently emits an empty checksum.
+file_checksum() {
+    [ -f "$1" ] || { echo "n/a"; return 0; }
+    sha256sum "$1" 2>/dev/null | cut -d' ' -f1
+}
+
 create_manifest() {
     log_step "Creating version manifest..."
 
@@ -383,14 +409,16 @@ create_manifest() {
     "architecture": "$TARGET_ARCH",
     "files": {
         "tarpn_mon": "tarpn-mon.linux-${TARGET_ARCH}",
-        "tarpn_chat": "tarpn-chat-${TARGET_ARCH}",
+        "tarpn_chat": "tarpn-chat.linux-${TARGET_ARCH}",
         "send_routes_via_cq": "send-routes-via-cq.linux-${TARGET_ARCH}",
+        "linktest": "linktest.linux-${TARGET_ARCH}",
         "install_script": "scripts/install.sh"
     },
     "checksums": {
-        "tarpn_mon": "$(sha256sum "$BUILD_DIR/tarpn-mon.linux-${TARGET_ARCH}" 2>/dev/null | cut -d' ' -f1 || echo 'n/a')",
-        "tarpn_chat": "$(sha256sum "$BUILD_DIR/tarpn-chat-${TARGET_ARCH}" 2>/dev/null | cut -d' ' -f1 || echo 'n/a')",
-        "send_routes_via_cq": "$(sha256sum "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}" 2>/dev/null | cut -d' ' -f1 || echo 'n/a')"
+        "tarpn_mon": "$(file_checksum "$BUILD_DIR/tarpn-mon.linux-${TARGET_ARCH}")",
+        "tarpn_chat": "$(file_checksum "$BUILD_DIR/tarpn-chat-${TARGET_ARCH}")",
+        "send_routes_via_cq": "$(file_checksum "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}")",
+        "linktest": "$(file_checksum "$BUILD_DIR/linktest.linux-${TARGET_ARCH}")"
     }
 }
 EOF
@@ -421,12 +449,21 @@ upload_to_s3() {
 
     if [ -f "$BUILD_DIR/tarpn-chat-${TARGET_ARCH}" ]; then
         log_info "Uploading tarpn-chat..."
+        # Canonical name, matching every other component: <name>.linux-<arch>.
+        aws s3 cp "$BUILD_DIR/tarpn-chat-${TARGET_ARCH}" "$s3_path/tarpn-chat.linux-${TARGET_ARCH}"
+        # Legacy name, kept so the older deploy/install.sh keeps working
+        # against this bucket. Drop once nothing installs with that script.
         aws s3 cp "$BUILD_DIR/tarpn-chat-${TARGET_ARCH}" "$s3_path/tarpn-chat-${TARGET_ARCH}"
     fi
 
     if [ -f "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}" ]; then
         log_info "Uploading send-routes-via-cq..."
         aws s3 cp "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}" "$s3_path/send-routes-via-cq.linux-${TARGET_ARCH}"
+    fi
+
+    if [ -f "$BUILD_DIR/linktest.linux-${TARGET_ARCH}" ]; then
+        log_info "Uploading linktest..."
+        aws s3 cp "$BUILD_DIR/linktest.linux-${TARGET_ARCH}" "$s3_path/linktest.linux-${TARGET_ARCH}"
     fi
 
     # Upload scripts
@@ -469,6 +506,7 @@ main() {
     if [ "$BUILD_MON" = true ]; then
         build_tarpn_mon
         build_sendroutesviacq
+        build_linktest
     fi
 
     if [ "$BUILD_CHAT" = true ]; then

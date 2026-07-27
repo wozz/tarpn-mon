@@ -1,0 +1,27 @@
+#!/bin/bash
+# tarpn-chat/preremove - hand chat back to LinBPQ.
+#
+# Removing the module without this would leave the node with no chat at all:
+# node.conf would still say CHAT_PROVIDER=tarpn-chat, so the generated
+# bpq32.cfg would keep LINCHAT commented out.
+set -euo pipefail
+
+if [ -f "$TARPN_NODE_CONF" ]; then
+    current="$(conf_get "$TARPN_NODE_CONF" CHAT_PROVIDER linbpq)"
+    if [ "$current" = tarpn-chat ]; then
+        conf_set "$TARPN_NODE_CONF" CHAT_PROVIDER linbpq
+        log_info "Set CHAT_PROVIDER=linbpq in ${TARPN_NODE_CONF}"
+        log_warn "run 'sudo tarpnctl apply' to re-enable LinBPQ's built-in chat"
+    fi
+fi
+
+# tarpn-mon's chat feature points at this server's WebSocket API. Leaving it
+# enabled would have the backend retrying a connection to nothing.
+if module_is_installed tarpn-mon; then
+    log_warn "tarpn-mon's chat feature still points at tarpn-chat on port 8513"
+    log_dim "turn it off in the web UI, or chat will show as disconnected"
+fi
+
+# The config is left in place, like every other operator-owned file, so
+# reinstalling restores the same identity and peer list.
+log_dim "${TARPN_ETC}/tarpn-chat.toml was left in place"

@@ -1,0 +1,156 @@
+# /etc/tarpn/node.conf - radio and node configuration.
+#
+# This is the single source of truth for the node. `tarpnctl apply` renders it
+# into bpq32.cfg; bpq32.cfg itself is a generated artifact and any edits to it
+# will be overwritten.
+#
+# Replaces the legacy /home/pi/node.ini. To convert an existing node, run:
+#     sudo tarpnctl import-node-ini /home/pi/node.ini
+
+# ---------------------------------------------------------------------------
+# Node identity
+# ---------------------------------------------------------------------------
+
+# Node callsign including SSID. TARPN convention is SSID -2 for the node.
+NODE_CALL=N0CALL-2
+
+# Node alias, max 6 characters, shown in NODES listings.
+NODE_NAME=MYNODE
+
+# Operator callsign (no SSID). Used for the telnet login prompt and sysop user.
+OP_CALL=N0CALL
+
+# Sysop password for the telnet SYSOP user. Change this.
+SYSOP_PASSWORD=changeme
+
+# Decimal latitude,longitude. Used for the BPQ node map. Leave blank to omit.
+LATLON=
+
+# Connect text, shown to incoming connections.
+CTEXT=Welcome to the MYNODE node
+
+# INFO command text, one line per entry. Blank entries render as blank lines.
+INFO1=TARPN node MYNODE
+INFO2=Operator N0CALL
+INFO3=
+INFO4=
+INFO5=
+INFO6=
+INFO7=
+INFO8=
+
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
+
+# BBS callsign (TARPN convention: SSID -1). Leave blank to disable the BBS.
+BBS_CALL=
+
+# Chat callsign (TARPN convention: SSID -9). Defaults to <base call>-9.
+CHAT_CALL=
+
+# Who serves chat:
+#   linbpq      LinBPQ's built-in LINCHAT (the stock TARPN arrangement)
+#   tarpn-chat  the tarpn-chat module, which attaches over NetROM as its own
+#               node. Installing that module sets this for you.
+# The two are mutually exclusive - both would answer on the same callsign.
+CHAT_PROVIDER=linbpq
+
+# NetROM host port that external applications attach to. Only used when
+# CHAT_PROVIDER=tarpn-chat. Requires LinBPQ 6.0.25 or newer.
+NETROM_PORT=63119
+
+# HOST mode exposes a TNC2-style port over a local serial device for terminal
+# programs. It depends on the legacy minicom setup, which this installation
+# method does not ship, so it is off by default.
+HOST_MODE=disabled
+
+# The stock TARPN config also declares TARPN Home: APPLICATION 4/5/6 and
+# TNCPORTs bound to /home/pi/minicom/com*. This installation ships neither,
+# so it is off by default. Only turn it on if you have kept the legacy TARPN
+# scripts installed alongside this one.
+LEGACY_TARPN_APPS=false
+
+# Node helper commands offered at the node prompt, served over CMDPORT by the
+# node-commands module. Comma separated; leave empty for none.
+#
+#   trr        link quality per neighbour, both directions
+#   tinfo      node diagnostics for someone connecting over RF
+#   linktest   send test packets out a port (needs the legacy linktest binary)
+#   linux      menu of operator scripts in the bpq-extensions directory
+#   tchat      legacy chat app - superseded by the tarpn-chat module
+#
+# Only list commands the node-commands module is actually serving. An
+# advertised command with nothing behind it appears in the menu and then
+# fails. `tarpnctl install node-commands` sets this for you.
+NODE_COMMANDS=
+
+# ---------------------------------------------------------------------------
+# NinoTNC ports
+# ---------------------------------------------------------------------------
+# Slots A..J map to LinBPQ ports 1..10 and to /dev/ttyACM0../dev/ttyACM9.
+#
+# The ttyACM numbering is assigned by the kernel in enumeration order, so slot
+# A is not guaranteed to be any particular physical TNC. Which neighbour is
+# actually reachable on which port is resolved at runtime by the `npa` module.
+#
+# Fill slots from A upwards with no gaps - a configured slot D with an empty
+# slot C would point port 4 at a device that does not exist.
+#
+# FRACK is the AX.25 T1 frame-acknowledgement timeout in milliseconds. Both
+# ends of a link should agree on it.
+
+PORT_A_NEIGHBOR=
+PORT_A_FRACK=9000
+
+PORT_B_NEIGHBOR=
+PORT_B_FRACK=9000
+
+PORT_C_NEIGHBOR=
+PORT_C_FRACK=9000
+
+PORT_D_NEIGHBOR=
+PORT_D_FRACK=9000
+
+PORT_E_NEIGHBOR=
+PORT_E_FRACK=9000
+
+PORT_F_NEIGHBOR=
+PORT_F_FRACK=9000
+
+PORT_G_NEIGHBOR=
+PORT_G_FRACK=9000
+
+PORT_H_NEIGHBOR=
+PORT_H_FRACK=9000
+
+PORT_I_NEIGHBOR=
+PORT_I_FRACK=9000
+
+PORT_J_NEIGHBOR=
+PORT_J_FRACK=9000
+
+# ---------------------------------------------------------------------------
+# Manual serial ports 11 and 12
+# ---------------------------------------------------------------------------
+# For TNCs that are not NinoTNCs, or that need a fixed device path. Use a
+# /dev/serial/by-id/... path if you want a stable binding across reboots.
+# These must not point at a /dev/ttyACM* device - those belong to the slots
+# above.
+
+PORT_11_ENABLED=false
+PORT_11_NEIGHBOR=
+PORT_11_DEV=/dev/ttyUSB0
+PORT_11_SPEED=57600
+PORT_11_TXDELAY=200
+PORT_11_FRACK=9000
+# false sends KISSOPTIONS=NOPARAMS, i.e. do not push KISS parameters to the TNC
+PORT_11_KISS_PARAMS=true
+
+PORT_12_ENABLED=false
+PORT_12_NEIGHBOR=
+PORT_12_DEV=/dev/ttyUSB1
+PORT_12_SPEED=57600
+PORT_12_TXDELAY=200
+PORT_12_FRACK=9000
+PORT_12_KISS_PARAMS=true

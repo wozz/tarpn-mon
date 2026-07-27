@@ -194,3 +194,41 @@ deploy/
 - Raspberry Pi (ARM32/ARM64) or x86_64 Linux
 - Internet connection (for downloading binaries)
 - sudo/root access
+
+## Release channel layout
+
+`build-release.sh` publishes one directory per version plus a `latest/`
+mirror, and `../tarpn-node/` installs from `RELEASE_BASE_URL` / `RELEASE_VERSION`
+in `/etc/tarpn/tarpn.conf` (defaulting to this bucket and `latest`).
+
+```
+s3://tarpn-terminal/<version>/
+  tarpn-mon.linux-<arch>
+  tarpn-chat.linux-<arch>          canonical
+  tarpn-chat-<arch>                legacy alias, see below
+  send-routes-via-cq.linux-<arch>
+  linktest.linux-<arch>
+  manifest.json
+  scripts/
+s3://tarpn-terminal/latest/        synced from the newest version
+```
+
+Every component follows `<name>.linux-<arch>`. `tarpn-chat` was originally
+published as `tarpn-chat-<arch>`; releases now upload **both** names so the
+older `install.sh` in this directory keeps working, and the tarpn-node
+installer falls back to the legacy name when the canonical one is absent.
+Drop the alias once nothing installs with the old script.
+
+`--arch` builds one architecture at a time, and the per-version directory
+accumulates, so publishing all three means running it three times before the
+`latest/` sync reflects the full set:
+
+```bash
+./build-release.sh --arch arm32
+./build-release.sh --arch arm64
+./build-release.sh --arch amd64
+```
+
+Note that `manifest.json` is rewritten per architecture and therefore
+describes only the last one built. The tarpn-node installer constructs URLs
+directly and does not read it.

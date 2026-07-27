@@ -13,12 +13,14 @@
 SHELL := /bin/bash
 .PHONY: all build build-arm32 build-arm64 frontend clean run dev help \
        build-sendroutesviacq-arm32 build-sendroutesviacq-arm64 build-sendroutesviacq-amd64 \
+       build-linktest-arm32 build-linktest-arm64 build-linktest-amd64 \
        build-sendroutesviacq test-sendroutesviacq
 
 # Directories
 ROOT_DIR := $(shell pwd)
 FRONTEND_DIR := $(ROOT_DIR)/tarpn-terminal
 SENDROUTESVIACQ_DIR := $(ROOT_DIR)/sendroutesviacq
+LINKTEST_DIR := $(ROOT_DIR)/linktest
 DIST_DIR := $(ROOT_DIR)/dist
 
 # Version (from git or fallback)
@@ -27,6 +29,7 @@ VERSION := $(shell git describe --tags 2>/dev/null || echo "dev")
 # Output names
 BINARY_NAME := tarpn-mon
 SENDROUTESVIACQ_NAME := send-routes-via-cq
+LINKTEST_NAME := linktest
 
 # Frontend source files (for dependency tracking)
 FRONTEND_SOURCES := $(shell find $(FRONTEND_DIR)/src -type f 2>/dev/null)
@@ -49,6 +52,9 @@ help:
 	@echo "  make build-sendroutesviacq-arm32    - Cross-compile send-routes-via-cq for Pi (32-bit)"
 	@echo "  make build-sendroutesviacq-arm64    - Cross-compile send-routes-via-cq for Pi (64-bit)"
 	@echo "  make build-sendroutesviacq-amd64    - Build send-routes-via-cq for x86_64"
+	@echo "  make build-linktest-arm32           - Cross-compile linktest for Pi (32-bit)"
+	@echo "  make build-linktest-arm64           - Cross-compile linktest for Pi (64-bit)"
+	@echo "  make build-linktest-amd64           - Build linktest for x86_64"
 	@echo "  make test-sendroutesviacq           - Run send-routes-via-cq tests"
 	@echo ""
 	@echo "Version: $(VERSION)"
@@ -103,7 +109,8 @@ build-amd64: $(FRONTEND_DIST)
 	@ls -lh $(DIST_DIR)/$(BINARY_NAME).linux-amd64
 
 # Build all architectures
-build-all: build-arm32 build-arm64 build-amd64 build-sendroutesviacq-arm32 build-sendroutesviacq-arm64 build-sendroutesviacq-amd64
+build-all: build-arm32 build-arm64 build-amd64 build-sendroutesviacq-arm32 build-sendroutesviacq-arm64 build-sendroutesviacq-amd64 \
+       build-linktest-arm32 build-linktest-arm64 build-linktest-amd64
 	@echo "All architectures built in $(DIST_DIR)/"
 	@ls -lh $(DIST_DIR)/
 
@@ -119,6 +126,27 @@ build-sendroutesviacq:
 	@ls -lh $(DIST_DIR)/$(SENDROUTESVIACQ_NAME)
 
 # Cross-compile for ARM32
+build-linktest-arm32:
+	@echo "Building linktest for linux/arm32..."
+	@mkdir -p $(DIST_DIR)
+	cd $(LINKTEST_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(LINKTEST_NAME).linux-arm32 .
+	@ls -lh $(DIST_DIR)/$(LINKTEST_NAME).linux-arm32
+
+build-linktest-arm64:
+	@echo "Building linktest for linux/arm64..."
+	@mkdir -p $(DIST_DIR)
+	cd $(LINKTEST_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(LINKTEST_NAME).linux-arm64 .
+	@ls -lh $(DIST_DIR)/$(LINKTEST_NAME).linux-arm64
+
+build-linktest-amd64:
+	@echo "Building linktest for linux/amd64..."
+	@mkdir -p $(DIST_DIR)
+	cd $(LINKTEST_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(LINKTEST_NAME).linux-amd64 .
+	@ls -lh $(DIST_DIR)/$(LINKTEST_NAME).linux-amd64
+
 build-sendroutesviacq-arm32:
 	@echo "Building send-routes-via-cq for linux/arm32..."
 	@mkdir -p $(DIST_DIR)

@@ -1,0 +1,17 @@
+[Unit]
+Description=TARPN packet node
+Documentation=https://github.com/wozz/tarpn-mon
+# Every tarpn-* service is WantedBy= and PartOf= this target. That gives the
+# operator a single handle for the whole node:
+#
+#   systemctl start tarpn.target     - bring the node up
+#   systemctl stop  tarpn.target     - take the node down
+#   systemctl disable tarpn.target   - stop it coming up at boot
+#
+# It replaces the BACKGROUND:ON flag file and the /tmp/stop_service_scripts.txt
+# semaphore that the legacy scripts polled for.
+After=network-online.target
+Wants=network-online.target
+
+[Install]
+WantedBy=multi-user.target

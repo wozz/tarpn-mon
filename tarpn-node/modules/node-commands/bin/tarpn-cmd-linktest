@@ -1,0 +1,85 @@
+#!/bin/bash
+# LINKTEST - send test packets out a port to measure a link.
+#
+# The transmitting is done by the `linktest` binary next to this script - our
+# own portable build (see ../../../../linktest/ in the source tree), which
+# replaces TARPN's original 32-bit-ARM-only one so this works on 64-bit.
+#
+# LINKTEST_BINARY in tarpn.conf points at a different one if you would rather
+# run the original. If no binary is available the command says so plainly
+# rather than failing with "command not found" over the air.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SELF_DIR}/_cmd-common.sh"
+
+find_binary() {
+    local configured p
+    configured="$(conf_get "$TARPN_CONF" LINKTEST_BINARY "")"
+    if [ -n "$configured" ]; then
+        [ -x "$configured" ] && { printf '%s' "$configured"; return 0; }
+        return 1
+    fi
+    for p in "${SELF_DIR}/linktest" /usr/local/sbin/linktest /home/pi/linktest-app; do
+        [ -x "$p" ] && { printf '%s' "$p"; return 0; }
+    done
+    return 1
+}
+
+read_callsign >/dev/null
+
+BINARY="$(find_binary || true)"
+if [ -z "$BINARY" ]; then
+    say "LINKTEST is not available on this node."
+    say "(the linktest program is not installed)"
+    exit 0
+fi
+
+# Offer the ports that are actually configured, so the user does not have to
+# guess a port number over a slow link.
+ports=()
+idx=0
+for L in A B C D E F G H I J; do
+    idx=$((idx + 1))
+    [ -n "$(conf_get "$TARPN_NODE_CONF" "PORT_${L}_NEIGHBOR" "")" ] && ports+=("$idx")
+done
+for N in 11 12; do
+    case "$(conf_get "$TARPN_NODE_CONF" "PORT_${N}_ENABLED" false)" in
+        true|yes|on|1) ports+=("$N") ;;
+    esac
+done
+
+if [ "${#ports[@]}" -gt 0 ]; then
+    say "Configured ports: ${ports[*]}"
+fi
+
+answer="$(ask 'Which port should linktest transmit on? --> ' 60)" || exit 0
+
+# Whatever comes back goes to a program that keys a transmitter, so accept
+# nothing but a plain port number.
+if ! printf '%s' "$answer" | grep -qE '^[0-9]{1,2}$'; then
+    say "'${answer}' is not a port number."
+    exit 0
+fi
+
+if [ "${#ports[@]}" -gt 0 ]; then
+    match=0
+    for p in "${ports[@]}"; do [ "$p" = "$answer" ] && match=1; done
+    if [ "$match" -eq 0 ]; then
+        say "Port ${answer} is not configured on this node."
+        exit 0
+    fi
+fi
+
+blank
+say "Running linktest on port ${answer}."
+say "Other traffic on this link may collide with the test packets,"
+say "so treat a few losses as normal."
+blank
+
+"$BINARY" "$answer" NOPRINT
+
+blank
+say "Linktest has ended."
+exit 0

@@ -1,0 +1,58 @@
+[Unit]
+Description=LinBPQ packet node (AX.25 / NetROM engine)
+Documentation=https://github.com/wozz/tarpn-mon
+Documentation=https://www.cantab.net/users/john.wiseman/Documents/
+
+# Grouped under tarpn.target so `systemctl stop tarpn.target` takes the whole
+# node down. There is deliberately no dependency in the other direction:
+# monitoring and chat services must survive LinBPQ restarting.
+PartOf=tarpn.target
+After=network-online.target
+Wants=network-online.target
+
+# Do not attempt to start an unconfigured node. This replaces the legacy
+# "sleep 180 and check again, six levels deep" pattern in runbpq.sh.
+ConditionPathExists=@TARPN_ETC@/node.conf
+ConditionFileIsExecutable=@BPQ_HOME@/linbpq
+
+[Service]
+Type=simple
+User=@TARPN_USER@
+Group=@TARPN_GROUP@
+WorkingDirectory=@BPQ_HOME@
+
+# Regenerate bpq32.cfg from node.conf before every start. If the config is
+# invalid the generator exits non-zero and systemd refuses to start the
+# service, leaving the previous bpq32.cfg untouched. The legacy script
+# rebooted the Pi in this situation.
+ExecStartPre=@TARPN_PREFIX@/modules/linbpq/bin/tarpn-bpq-genconfig
+ExecStart=@BPQ_HOME@/linbpq
+
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=30
+
+# LinBPQ wants raw sockets and, depending on config, ports below 1024.
+# Granting the capabilities here means the binary itself does not need
+# setcap, so replacing or upgrading it does not silently lose privileges.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
+
+# Serial TNCs live in the dialout group.
+SupplementaryGroups=dialout
+
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=@BPQ_HOME@
+
+# journalctl -u tarpn-linbpq, rather than a hand-rolled log file that some
+# other script has to truncate on a timer.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=linbpq
+
+[Install]
+WantedBy=tarpn.target

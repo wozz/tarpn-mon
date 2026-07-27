@@ -11,6 +11,10 @@ type TARPNStat struct {
 	Tx       int    `json:"tx"`
 	Ret      int    `json:"ret"`
 	Buf      int    `json:"buf"`
+	// LinkUp reflects the chevron field: '>' means the sender considers the
+	// link to this neighbour active, 'n' means it does not. The legacy
+	// linkquality data called this LOCAL_UP_DOWN and TRR displays it.
+	LinkUp bool `json:"linkUp"`
 }
 
 // Parse string: [TARPNstat V2]~CALLSIGN-SID~>~txINT~retINT~bufINT~
@@ -50,9 +54,12 @@ func parseTARPNStat(content string) (*TARPNStat, error) {
 		Callsign: parts[0],
 	}
 
-	// Validate parts[1] is ">" (or maybe ignore if it varies)
+	// parts[1] is the link-state chevron: ">" if the sending node currently
+	// has this link up, "n" if not. send-routes-via-cq sets it from the
+	// route's ChevronSet flag.
 	// Format is: CALLSIGN~>~tx500~ret10~buf2~
 	// Parts[2] = "tx500", parts[3] = "ret10", parts[4] = "buf2"
+	stat.LinkUp = strings.TrimSpace(parts[1]) == ">"
 
 	var err error
 

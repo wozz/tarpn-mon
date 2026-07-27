@@ -1,0 +1,81 @@
+#!/bin/bash
+# linbpq/postinstall - seed node.conf and make sure a linbpq binary is present.
+set -euo pipefail
+
+user="$(resolve_tarpn_user)"
+group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+bpq_home="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+mod="$(module_dir linbpq)"
+
+run install -d -m 0755 -o "$user" -g "$group" "$bpq_home"
+
+# node.conf is operator-owned: seed it once, never overwrite.
+if [ ! -f "$TARPN_NODE_CONF" ]; then
+    run install -m 0644 "${mod}/config/node.conf.example" "$TARPN_NODE_CONF"
+    log_info "Wrote ${TARPN_NODE_CONF} - edit it, then run 'tarpnctl apply'"
+    log_dim "to convert an existing node: tarpnctl import-node-ini /home/pi/node.ini"
+else
+    log_dim "${TARPN_NODE_CONF} exists, leaving it alone"
+fi
+
+# LinBPQ itself is third-party and is not redistributed here, so it is fetched
+# from G8BPQ's own download area at install time - the same place the stock
+# TARPN installer gets it from. Set LINBPQ_SOURCE to a path or URL to override,
+# or to "none" to install it yourself.
+binary="${bpq_home}/linbpq"
+host_arch="$(detect_arch)"
+
+if [ -x "$binary" ]; then
+    log_dim "linbpq already present at ${binary}"
+else
+    src="$(conf_get "$TARPN_CONF" LINBPQ_SOURCE auto)"
+
+    if [ "$src" = auto ]; then
+        if src="$(linbpq_upstream_url "$host_arch")"; then
+            log_dim "selected the ${host_arch} build for this userland"
+        else
+            src=none
+            log_warn "no known upstream linbpq build for architecture ${host_arch}"
+        fi
+    fi
+
+    case "$src" in
+        none|manual|"")
+            log_warn "no linbpq binary at ${binary}"
+            log_dim "install one, then run 'sudo tarpnctl start linbpq'. Options:"
+            log_dim "  - copy from an existing node:  cp /home/pi/bpq/linbpq ${binary}"
+            log_dim "  - set LINBPQ_SOURCE in ${TARPN_CONF} to a path or URL and run:"
+            log_dim "      sudo tarpnctl update linbpq"
+            ;;
+        http://*|https://*)
+            log_step "Downloading linbpq from ${src}"
+            if run curl -fsSL "$src" -o "${binary}.new"; then
+                install_linbpq "${binary}.new" "$binary" "$host_arch" "$user" "$group"
+            else
+                run rm -f "${binary}.new"
+                log_warn "could not download linbpq from ${src}"
+                log_dim "install it manually, then: sudo tarpnctl start linbpq"
+            fi
+            ;;
+        *)
+            [ -f "$src" ] || die "LINBPQ_SOURCE does not exist: ${src}"
+            log_step "Installing linbpq from ${src}"
+            run cp "$src" "${binary}.new"
+            install_linbpq "${binary}.new" "$binary" "$host_arch" "$user" "$group"
+            ;;
+    esac
+fi
+
+# Whatever route it arrived by, confirm it can actually run here. A 32-bit
+# binary on a 64-bit userland is the most common failure when moving off the
+# stock image, and the kernel's error for it is unhelpful.
+if [ -x "$binary" ]; then
+    check_linbpq_arch "$binary" "$host_arch" || true
+fi
+
+# Validate whatever config exists so problems surface now, not at boot.
+if [ -f "$TARPN_NODE_CONF" ] && [ "$TARPN_DRY_RUN" != true ]; then
+    if ! "${mod}/bin/tarpn-bpq-genconfig" --check; then
+        log_warn "node.conf is not valid yet; edit it and run 'tarpnctl apply'"
+    fi
+fi

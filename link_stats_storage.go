@@ -62,6 +62,30 @@ func (s *LinkStatsStorage) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_raw_timestamp ON link_stats_raw(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_raw_port_timestamp ON link_stats_raw(port_num, timestamp);
 
+	-- Legacy [TARPNstat V2] broadcasts, as seen on the monitor stream.
+	--
+	-- This is the network-wide interoperable link report: every TARPN node
+	-- broadcasts it, including stock ones, so it is the only bilateral link
+	-- data available for neighbours that are not running this software.
+	-- It is route-level (from LinBPQ's "R R" table), which is a different
+	-- view from the per-port L2 counters in link_stats_raw.
+	--
+	-- direction is 'T' for our own outgoing broadcast and 'R' for one heard
+	-- from a neighbour, which is what makes the bilateral comparison possible.
+	CREATE TABLE IF NOT EXISTS link_stats_tarpnstat (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp DATETIME NOT NULL,
+		direction TEXT NOT NULL,
+		port_num INTEGER NOT NULL,
+		callsign TEXT NOT NULL,
+		link_up INTEGER DEFAULT 0,
+		tx INTEGER DEFAULT 0,
+		ret INTEGER DEFAULT 0,
+		buf INTEGER DEFAULT 0
+	);
+	CREATE INDEX IF NOT EXISTS idx_tarpnstat_port_dir_ts
+		ON link_stats_tarpnstat(port_num, direction, timestamp);
+
 	CREATE TABLE IF NOT EXISTS link_stats_system (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		timestamp DATETIME NOT NULL,
@@ -966,6 +990,48 @@ func (s *LinkStatsStorage) SaveNeighborCQ(rxPort int, msg *LinkStatCQMessage) er
 		msg.RXCRCErrors, msg.Abandoned, msg.ActiveTxPct, msg.ActiveBusyPct)
 	if err != nil {
 		return fmt.Errorf("failed to save neighbor CQ: %w", err)
+	}
+	return nil
+}
+
+// SaveTARPNStat stores a [TARPNstat V2] broadcast seen on the monitor stream.
+//
+// direction is the monitor's R/T flag: 'T' is our own broadcast going out,
+// 'R' is one heard from a neighbour. Storing both is what lets a consumer show
+// each link from both ends, which is the whole point of TARPNstat and what the
+// legacy rx_tarpnstatapp wrote to tarpn_home_linkquality.dat.
+func (s *LinkStatsStorage) SaveTARPNStat(direction string, portNum int, stat *TARPNStat) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	linkUp := 0
+	if stat.LinkUp {
+		linkUp = 1
+	}
+
+	ts := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(`
+		INSERT INTO link_stats_tarpnstat
+		(timestamp, direction, port_num, callsign, link_up, tx, ret, buf)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ts, direction, portNum, stat.Callsign, linkUp, stat.Tx, stat.Ret, stat.Buf)
+	if err != nil {
+		return fmt.Errorf("failed to save TARPNstat: %w", err)
+	}
+	return nil
+}
+
+// PurgeOldTARPNStat drops TARPNstat rows older than retention. Broadcasts
+// arrive every 15 minutes per port, so this table grows steadily and only the
+// recent window is of any use.
+func (s *LinkStatsStorage) PurgeOldTARPNStat(retention time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cutoff := time.Now().UTC().Add(-retention).Format(time.RFC3339)
+	_, err := s.db.Exec(`DELETE FROM link_stats_tarpnstat WHERE timestamp < ?`, cutoff)
+	if err != nil {
+		return fmt.Errorf("failed to purge old TARPNstat rows: %w", err)
 	}
 	return nil
 }

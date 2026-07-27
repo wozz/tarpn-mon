@@ -1,0 +1,28 @@
+[Unit]
+Description=Broadcast TARPNstat link quality via CQ
+Documentation=https://github.com/wozz/tarpn-mon
+
+# Reads the node's route table over the local telnet port and broadcasts a
+# TARPNstat summary on each active RF port, so neighbours can see both sides
+# of every link. Replaces the legacy 32-bit sendroutestocq binary, which
+# statusmonitor.sh invoked from inside a polling loop.
+After=tarpn-linbpq.service
+
+[Service]
+Type=oneshot
+User=@TARPN_USER@
+Group=@TARPN_GROUP@
+ExecStart=@TARPN_PREFIX@/modules/routes/bin/send-routes-via-cq
+
+# The node engine may legitimately be down when the timer fires. That is not
+# an error worth alerting on; the next run in 15 minutes will pick it up.
+SuccessExitStatus=0 1
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tarpn-routes

@@ -1,0 +1,72 @@
+#!/bin/bash
+# node-commands/postinstall - work out which commands can actually be served,
+# and advertise exactly those in node.conf.
+set -euo pipefail
+
+mod="$(module_dir node-commands)"
+[ "$TARPN_DRY_RUN" = true ] || chmod 0755 "${mod}/bin/"tarpn-cmd-* 2>/dev/null || true
+
+available=""
+add() { available="${available:+${available},}$1"; }
+
+# LINUX and TINFO are self-contained.
+add tinfo
+add linux
+
+# TRR reads tarpn-mon's stats database and needs the sqlite3 CLI to do it.
+if ! module_is_installed tarpn-mon; then
+    log_warn "TRR not enabled: it reads tarpn-mon's link stats database"
+    log_dim "install tarpn-mon, then: sudo tarpnctl update node-commands"
+elif ! command -v sqlite3 >/dev/null 2>&1; then
+    log_warn "TRR not enabled: sqlite3 is not installed"
+    log_dim "sudo apt install sqlite3 && sudo tarpnctl update node-commands"
+else
+    add trr
+fi
+
+# LINKTEST uses our own portable build. TARPN's original is 32-bit ARM only,
+# so on a 64-bit userland it was the one node command that could not run;
+# LINKTEST_BINARY still lets an operator point at the original if they prefer.
+linktest=""
+configured="$(conf_get "$TARPN_CONF" LINKTEST_BINARY "")"
+if [ -n "$configured" ]; then
+    if [ -x "$configured" ]; then
+        linktest="$configured"
+        log_dim "LINKTEST will use ${configured} (LINKTEST_BINARY)"
+    else
+        log_warn "LINKTEST_BINARY is set to ${configured}, which is not executable"
+    fi
+else
+    if install_release_binary linktest "${mod}/bin/linktest"; then
+        linktest="${mod}/bin/linktest"
+    else
+        # Fall back to TARPN's original if it happens to be on the box.
+        for p in /usr/local/sbin/linktest /home/pi/linktest-app; do
+            [ -x "$p" ] && { linktest="$p"; log_dim "falling back to ${p}"; break; }
+        done
+    fi
+fi
+
+if [ -n "$linktest" ]; then
+    add linktest
+else
+    log_warn "LINKTEST not enabled: no linktest binary available"
+    log_dim "set LINKTEST_BINARY in ${TARPN_CONF} and re-run:"
+    log_dim "  sudo tarpnctl update node-commands"
+fi
+
+# TCHAT is deliberately never offered: the tarpn-chat module supersedes it,
+# and its binary is not redistributed here either.
+
+if [ -f "$TARPN_NODE_CONF" ]; then
+    current="$(conf_get "$TARPN_NODE_CONF" NODE_COMMANDS "")"
+    if [ "$current" != "$available" ]; then
+        conf_set "$TARPN_NODE_CONF" NODE_COMMANDS "$available"
+        log_info "NODE_COMMANDS=${available}"
+        log_warn "run 'sudo tarpnctl apply' to advertise these at the node prompt"
+    else
+        log_dim "NODE_COMMANDS already set to ${available}"
+    fi
+else
+    log_warn "no ${TARPN_NODE_CONF} yet; set NODE_COMMANDS=${available} once the node is configured"
+fi
