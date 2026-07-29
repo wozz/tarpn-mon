@@ -477,9 +477,18 @@ upload_to_s3() {
             --content-type "application/json"
     fi
 
-    # Also upload to 'latest' path for easy access
+    # Also upload to 'latest' path for easy access.
+    #
+    # NO --delete here. This script builds one architecture per run, so
+    # $s3_path holds only that architecture's artifacts. Syncing it to latest/
+    # with --delete removes every other architecture's binaries - which are
+    # what already-deployed nodes install from. Publishing arm64 would have
+    # silently deleted the arm32 binaries out from under every existing node.
+    #
+    # The cost of omitting it is that a renamed artifact lingers in latest/
+    # until removed by hand. That is much cheaper than the alternative.
     log_info "Updating 'latest' pointer..."
-    aws s3 sync "$s3_path/" "s3://$S3_BUCKET/latest/" --delete
+    aws s3 sync "$s3_path/" "s3://$S3_BUCKET/latest/"
 
     log_info "Upload complete!"
     log_info ""

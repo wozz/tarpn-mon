@@ -66,23 +66,32 @@ WEB_DIST_DIR := $(ROOT_DIR)/web-dist
 $(FRONTEND_DIST): $(FRONTEND_SOURCES) $(FRONTEND_DIR)/package.json
 	@echo "Building frontend..."
 	cd $(FRONTEND_DIR) && npm install --silent && npx expo export -p web --output-dir dist
+	@touch $(FRONTEND_DIST)
+
+# web-dist is what main.go embeds via //go:embed all:web-dist. It gets its own
+# rule rather than being a side effect of the frontend build: it is gitignored,
+# so it is routinely absent on a fresh clone or after a clean, and without a
+# rule of its own make considers the frontend up to date and the Go build then
+# fails with "pattern all:web-dist: no matching files found".
+WEB_DIST := $(WEB_DIST_DIR)/index.html
+
+$(WEB_DIST): $(FRONTEND_DIST)
 	@echo "Syncing to web-dist for embedding..."
 	@rm -rf $(WEB_DIST_DIR)
 	@cp -r $(FRONTEND_DIR)/dist $(WEB_DIST_DIR)
-	@touch $(FRONTEND_DIST)
 
 frontend: $(FRONTEND_DIST)
 	@echo "Frontend built: $(FRONTEND_DIST)"
 
 # Build for current platform
-build: $(FRONTEND_DIST)
+build: $(WEB_DIST)
 	@echo "Building tarpn-mon for current platform..."
 	@mkdir -p $(DIST_DIR)
 	go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(BINARY_NAME) .
 	@ls -lh $(DIST_DIR)/$(BINARY_NAME)
 
 # Cross-compile for ARM32 (Raspberry Pi 32-bit)
-build-arm32: $(FRONTEND_DIST)
+build-arm32: $(WEB_DIST)
 	@echo "Building tarpn-mon for linux/arm32..."
 	@mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
@@ -91,7 +100,7 @@ build-arm32: $(FRONTEND_DIST)
 	@ls -lh $(DIST_DIR)/$(BINARY_NAME).linux-arm32
 
 # Cross-compile for ARM64 (Raspberry Pi 64-bit)
-build-arm64: $(FRONTEND_DIST)
+build-arm64: $(WEB_DIST)
 	@echo "Building tarpn-mon for linux/arm64..."
 	@mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
@@ -100,7 +109,7 @@ build-arm64: $(FRONTEND_DIST)
 	@ls -lh $(DIST_DIR)/$(BINARY_NAME).linux-arm64
 
 # Cross-compile for AMD64 (x86_64 Linux)
-build-amd64: $(FRONTEND_DIST)
+build-amd64: $(WEB_DIST)
 	@echo "Building tarpn-mon for linux/amd64..."
 	@mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
