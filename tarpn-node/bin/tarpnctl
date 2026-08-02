@@ -270,7 +270,17 @@ cmd_doctor() {
         ok "linktest binary present (LINKTEST)"
     else
         warn "no linktest binary; the LINKTEST node command is unavailable"
-        hint "sudo tarpnctl update node-commands   will install it"
+        # Do not suggest re-running the installer without checking that there
+        # is actually something to fetch - saying "this will install it" when
+        # the architecture was never published just wastes the operator's time.
+        local lt_url
+        if lt_url="$(conf_get "$TARPN_CONF" RELEASE_BASE_URL "https://tarpn-terminal.s3.us-east-1.amazonaws.com")/$(conf_get "$TARPN_CONF" RELEASE_VERSION latest)/linktest.linux-${arch}" \
+           && curl -fsI --max-time 10 "$lt_url" >/dev/null 2>&1; then
+            hint "sudo tarpnctl update node-commands   will install it"
+        else
+            hint "not published for ${arch} yet; build it and set LINKTEST_BINARY"
+            hint "in ${TARPN_CONF}, then: sudo tarpnctl update node-commands"
+        fi
     fi
 
     # --- configuration ----------------------------------------------------
@@ -438,14 +448,20 @@ cmd_show() {
 cmd_install() {
     need_root
     [ $# -gt 0 ] || die "usage: tarpnctl install <module>..."
-    local name
+    local name ok="" bad=""
     for name in $(resolve_module_list "$@"); do
-        module_install "$name"
+        if module_install "$name"; then ok="${ok} ${name}"; else bad="${bad} ${name}"; fi
     done
     systemd_reload
-    for name in $(resolve_module_list "$@"); do
+    for name in $ok; do
         module_enable "$name"
     done
+    if [ -n "$bad" ]; then
+        log_err "not installed:${bad}"
+        log_dim "usually means no binary is published for $(detect_arch) yet;"
+        log_dim "set <COMPONENT>_SOURCE in ${TARPN_CONF} to a local file and retry"
+        return 1
+    fi
     log_info "Done. 'tarpnctl status' to review, 'tarpnctl start' to bring the node up."
 }
 

@@ -220,22 +220,48 @@ echo
 # shellcheck disable=SC2086
 MODULES="$(resolve_module_list $SELECTED)"
 
+# Install everything selected, then report. A module that cannot install -
+# usually because its binary is not published for this architecture yet -
+# should not prevent the rest of the node being set up.
+INSTALLED=""
+FAILED=""
 for m in $MODULES; do
-    module_install "$m"
+    if module_install "$m"; then
+        INSTALLED="${INSTALLED} ${m}"
+    else
+        FAILED="${FAILED} ${m}"
+    fi
 done
 
 systemd_reload
 
-for m in $MODULES; do
+for m in $INSTALLED; do
     module_enable "$m"
 done
 
 # ---------------------------------------------------------------------------
 
 echo
-printf '%s========================================%s\n' "$_C_GRN" "$_C_OFF"
-printf '%s  Installed%s\n' "$_C_GRN" "$_C_OFF"
-printf '%s========================================%s\n\n' "$_C_GRN" "$_C_OFF"
+if [ -n "$FAILED" ]; then
+    printf '%s========================================%s\n' "$_C_YEL" "$_C_OFF"
+    printf '%s  Partly installed%s\n' "$_C_YEL" "$_C_OFF"
+    printf '%s========================================%s\n\n' "$_C_YEL" "$_C_OFF"
+    log_info "installed:${INSTALLED}"
+    log_err  "not installed:${FAILED}"
+    echo
+    log_dim "The usual cause is that no binary is published for $(detect_arch) yet."
+    log_dim "Build them elsewhere and either drop them in bin/ as"
+    log_dim "<component>.linux-$(detect_arch) and re-run this script, or point"
+    log_dim "<COMPONENT>_SOURCE in ${TARPN_CONF} at a local file and run:"
+    log_dim "  sudo tarpnctl update <module>"
+    echo
+    log_dim "Everything that did install is set up and usable."
+    echo
+else
+    printf '%s========================================%s\n' "$_C_GRN" "$_C_OFF"
+    printf '%s  Installed%s\n' "$_C_GRN" "$_C_OFF"
+    printf '%s========================================%s\n\n' "$_C_GRN" "$_C_OFF"
+fi
 
 if [ "$TARPN_DRY_RUN" = true ]; then
     log_info "dry run - nothing was changed"
@@ -263,3 +289,6 @@ Modules are independent. To see what is available:
        sudo tarpnctl install <module>
        sudo tarpnctl remove  <module>
 EOF
+
+# Non-zero when anything failed, so this is detectable from a script.
+[ -z "$FAILED" ] || exit 1

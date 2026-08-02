@@ -131,9 +131,14 @@ module_install() {
     # A module whose postinstall failed is not installed. Recording it as
     # such would let a later `tarpnctl update` skip straight past the
     # problem, and would let other modules detect it as present.
+    #
+    # Returns non-zero rather than exiting: one module failing - typically
+    # because no binary is published for this architecture yet - must not
+    # stop the others from installing. The caller reports what failed.
     if ! module_run_hook "$name" postinstall; then
         module_remove_units "$name"
-        die "module ${name} failed to install"
+        log_err "module ${name} was not installed"
+        return 1
     fi
 
     if [ "$TARPN_DRY_RUN" != true ]; then
