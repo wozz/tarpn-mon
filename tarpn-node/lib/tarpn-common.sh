@@ -369,8 +369,12 @@ install_release_binary() {
         src="${TARPN_PREFIX}/bin/${name}.linux-${arch}"
     else
         local base version
-        base="$(conf_get "$TARPN_CONF" RELEASE_BASE_URL "https://tarpn-terminal.s3.us-east-1.amazonaws.com")"
-        version="$(conf_get "$TARPN_CONF" RELEASE_VERSION latest)"
+        # The environment wins over tarpn.conf so a first-time install can be
+        # pointed at a specific release. tarpn.conf does not exist until the
+        # core module has run, by which time later modules would already be
+        # fetching from whatever the shipped default says.
+        base="${TARPN_RELEASE_BASE_URL:-$(conf_get "$TARPN_CONF" RELEASE_BASE_URL "https://tarpn-terminal.s3.us-east-1.amazonaws.com")}"
+        version="${TARPN_RELEASE_VERSION:-$(conf_get "$TARPN_CONF" RELEASE_VERSION latest)}"
         src="${base}/${version}/${name}.linux-${arch}"
 
         # tarpn-chat was published as "tarpn-chat-<arch>" before the naming
