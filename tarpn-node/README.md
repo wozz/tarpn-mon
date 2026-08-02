@@ -70,6 +70,19 @@ fetched separately from `RELEASE_BASE_URL` in `tarpn.conf`, because they
 cannot be built on a node — `tarpn-mon` embeds a frontend that needs npm, and
 `tarpn-chat` needs a Rust musl toolchain.
 
+### Optional system packages
+
+The installer does not run `apt`. One optional package is worth knowing about:
+
+```bash
+sudo apt install sqlite3      # only needed for the TRR node command
+```
+
+`TRR` reads tarpn-mon's statistics database through the `sqlite3` CLI, which
+Debian does not install by default. Without it everything else works and the
+`node-commands` module simply does not advertise `TRR`. Nothing else here
+needs a package that is not already on a stock system.
+
 ### Offline installation
 
 For a node with no Internet, build elsewhere and bring the binaries with you:

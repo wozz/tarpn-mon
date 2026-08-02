@@ -82,6 +82,9 @@ Options:
   --arch ARCH       Target architecture: arm32, arm64, amd64 (default: arm32)
   --version VER     Version tag (default: git describe or 'dev')
   --bucket BUCKET   S3 bucket name (default: \$TARPN_S3_BUCKET or 'tarpn-releases')
+  --no-latest       Upload the version directory but do not update latest/
+                    (use for prerelease or branch builds - nothing installing
+                    from latest/ is affected)
   --dry-run         Build only, don't upload to S3
   --skip-mon        Skip building tarpn-mon
   --skip-chat       Skip building tarpn-chat
@@ -112,6 +115,7 @@ EOF
 
 BUILD_MON=true
 BUILD_CHAT=true
+UPDATE_LATEST=true
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -126,6 +130,10 @@ while [[ $# -gt 0 ]]; do
         --bucket)
             S3_BUCKET="$2"
             shift 2
+            ;;
+        --no-latest)
+            UPDATE_LATEST=false
+            shift
             ;;
         --dry-run)
             DRY_RUN=true
@@ -487,8 +495,14 @@ upload_to_s3() {
     #
     # The cost of omitting it is that a renamed artifact lingers in latest/
     # until removed by hand. That is much cheaper than the alternative.
-    log_info "Updating 'latest' pointer..."
-    aws s3 sync "$s3_path/" "s3://$S3_BUCKET/latest/"
+    if [ "$UPDATE_LATEST" = false ]; then
+        log_warn "Skipping the 'latest' pointer (--no-latest)"
+        log_info "Install from this build with, in /etc/tarpn/tarpn.conf:"
+        log_info "  RELEASE_VERSION=$VERSION"
+    else
+        log_info "Updating 'latest' pointer..."
+        aws s3 sync "$s3_path/" "s3://$S3_BUCKET/latest/"
+    fi
 
     log_info "Upload complete!"
     log_info ""

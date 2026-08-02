@@ -219,6 +219,26 @@ older `install.sh` in this directory keeps working, and the tarpn-node
 installer falls back to the legacy name when the canonical one is absent.
 Drop the alias once nothing installs with the old script.
 
+### Prerelease and branch builds
+
+`--no-latest` uploads the version directory but leaves `latest/` alone, so a
+build from a branch is installable by anyone who asks for it by name without
+becoming the default for everyone else:
+
+```bash
+./build-release.sh --arch arm64 --no-latest
+```
+
+On the node under test, point at that version in `/etc/tarpn/tarpn.conf`:
+
+```
+RELEASE_VERSION=v0.1.1-4-g515e7b3
+```
+
+then `sudo tarpnctl update`. Nodes on the default `latest` are unaffected.
+
+### Publishing all architectures
+
 `--arch` builds one architecture at a time, and the per-version directory
 accumulates, so publishing all three means running it three times before the
 `latest/` sync reflects the full set:
