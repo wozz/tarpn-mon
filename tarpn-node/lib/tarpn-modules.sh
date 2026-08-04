@@ -102,7 +102,17 @@ module_with_deps() {
     case " $_dep_seen " in *" $name "*) return 0 ;; esac
     _dep_seen="$_dep_seen $name"
 
-    module_exists "$name" || die "no such module: ${name}"
+    # A module introduced in a newer version does not exist on the node until
+    # the tree has been restaged, so "no such module" is exactly what someone
+    # sees right after pulling a version that adds one. Say what to do.
+    if ! module_exists "$name"; then
+        log_err "no such module: ${name}"
+        log_dim "this installation has: $(module_list_available | tr '\n' ' ')"
+        log_dim "a module added in a newer version only appears once the tree"
+        log_dim "is restaged. From the checkout:"
+        log_dim "  git pull && sudo ./install.sh"
+        exit 1
+    fi
     for dep in $(module_meta "$name" REQUIRES ""); do
         module_with_deps "$dep"
     done
