@@ -41,6 +41,23 @@ if [ -z "$call" ] && [ -f /home/pi/node.ini ]; then
 fi
 [ -n "$call" ] || die "no operator callsign: set TARPN_MON_CALL in ${TARPN_ETC}/tarpn-mon.env"
 
+# Lower-case it, because the login name has to match the USER line in
+# bpq32.cfg exactly and that line is lower-case by convention: our generator
+# writes it with call_lower, and the legacy configure_node_ini.sh did the same
+# ("${local_op_callsign,,}"). node.conf stores OP_CALL upper-case for
+# readability, so without this an upper-case OP_CALL produces a login name
+# that matches no USER line and every telnet feature - chat, BBS, node
+# console - fails to connect while the config looks perfectly correct.
+#
+# G8BPQ's own tools sidestep this by reading the callsign back out of the
+# LOGINPROMPT rather than being told it; we normalise instead.
+#
+# An explicitly set TARPN_MON_CALL is passed through untouched, for a
+# hand-written bpq32.cfg whose USER line is not lower-case.
+if [ -z "${TARPN_MON_CALL:-}" ]; then
+    call="$(call_lower "$call")"
+fi
+
 password="${TARPN_MON_PASSWORD:-p}"
 host="${TARPN_MON_HOST:-localhost}"
 monitor_port="${TARPN_MON_MONITOR_PORT:-8011}"
