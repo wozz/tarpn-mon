@@ -1,0 +1,139 @@
+#!/bin/bash
+# qtterm/postinstall - install QtTermTCP for this architecture.
+#
+# QtTermTCP is G8BPQ's terminal program, not ours, and is fetched from the
+# same download area as LinBPQ. The stock TARPN installer only ever placed a
+# 32-bit build on the desktop, which is why it stops working on a 64-bit
+# image.
+#
+# Unlike everything else here it is a dynamically linked Qt5 application, so
+# it needs Qt5 runtime libraries present. We do not install them - see the
+# check at the end, which reports exactly what is missing.
+set -euo pipefail
+
+user="$(resolve_tarpn_user)"
+group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+mod="$(module_dir qtterm)"
+arch="$(detect_arch)"
+binary="${mod}/bin/qttermtcp"
+
+run install -d -m 0755 "${mod}/bin"
+
+# --- fetch ---------------------------------------------------------------
+if [ -x "$binary" ] && [ "${TARPN_FORCE:-false}" != true ]; then
+    log_dim "QtTermTCP already present at ${binary}"
+else
+    src="$(conf_get "$TARPN_CONF" QTTERM_SOURCE auto)"
+    if [ "$src" = auto ]; then
+        if src="$(qtterm_upstream_url "$arch")"; then
+            log_dim "selected the ${arch} build"
+        else
+            src=none
+            log_warn "no published QtTermTCP build for ${arch}"
+        fi
+    fi
+
+    case "$src" in
+        none|manual|"")
+            log_warn "QtTermTCP not installed"
+            log_dim "set QTTERM_SOURCE in ${TARPN_CONF} to a path or URL, then:"
+            log_dim "  sudo tarpnctl update qtterm"
+            ;;
+        http://*|https://*)
+            log_step "Downloading QtTermTCP from ${src}"
+            if run curl -fsSL "$src" -o "${binary}.new" 2>/dev/null; then
+                if [ "$TARPN_DRY_RUN" != true ]; then
+                    got="$(elf_arch_of "${binary}.new")"
+                    if [ "$got" != "$arch" ]; then
+                        rm -f "${binary}.new"
+                        die "downloaded QtTermTCP is ${got}, but this userland is ${arch}"
+                    fi
+                    chmod 0755 "${binary}.new"
+                    chown "$user:$group" "${binary}.new" 2>/dev/null || true
+                    mv "${binary}.new" "$binary"
+                    log_info "Installed ${binary}"
+                fi
+            else
+                run rm -f "${binary}.new"
+                log_warn "could not download QtTermTCP from ${src}"
+            fi
+            ;;
+        *)
+            [ -f "$src" ] || die "QTTERM_SOURCE does not exist: ${src}"
+            run cp "$src" "$binary"
+            [ "$TARPN_DRY_RUN" = true ] || chmod 0755 "$binary"
+            log_info "Installed ${binary} from ${src}"
+            ;;
+    esac
+fi
+
+[ -x "$binary" ] || return 0
+
+# --- make it launchable --------------------------------------------------
+run ln -sfn "$binary" "${TARPN_BINDIR}/qttermtcp"
+
+# A menu entry, so someone on the node's desktop over VNC can find it without
+# knowing the path.
+if [ -d "$TARPN_DESKTOP_DIR" ]; then
+    run install -m 0644 "${mod}/share/qttermtcp.desktop" \
+        "${TARPN_DESKTOP_DIR}/qttermtcp.desktop"
+    log_dim "menu entry installed"
+else
+    log_dim "no ${TARPN_DESKTOP_DIR}; skipping the menu entry (headless install)"
+fi
+
+# --- Qt5 runtime ---------------------------------------------------------
+# The binary needs these shared libraries. Report what is missing rather than
+# installing anything: this installer does not run apt, and on a node with no
+# Internet it could not anyway.
+QT_LIBS="libQt5Core.so.5 libQt5Gui.so.5 libQt5Multimedia.so.5 libQt5Network.so.5 libQt5SerialPort.so.5 libQt5Widgets.so.5"
+
+# Debian renamed several of these in the 64-bit time_t transition, so the
+# package providing a given library differs between releases. Try the newer
+# name first and fall back, checking against apt where it is available.
+pkg_for_soname() {
+    local cands
+    case "$1" in
+        libQt5Core.so.5)       cands="libqt5core5t64 libqt5core5a" ;;
+        libQt5Gui.so.5)        cands="libqt5gui5t64 libqt5gui5" ;;
+        libQt5Network.so.5)    cands="libqt5network5t64 libqt5network5" ;;
+        libQt5Widgets.so.5)    cands="libqt5widgets5t64 libqt5widgets5" ;;
+        libQt5Multimedia.so.5) cands="libqt5multimedia5" ;;
+        libQt5SerialPort.so.5) cands="libqt5serialport5" ;;
+        *) return 1 ;;
+    esac
+    local c
+    for c in $cands; do
+        if command -v apt-cache >/dev/null 2>&1; then
+            apt-cache show "$c" >/dev/null 2>&1 && { printf '%s' "$c"; return 0; }
+        else
+            printf '%s' "$c"; return 0
+        fi
+    done
+    printf '%s' "${cands%% *}"
+}
+
+if command -v ldconfig >/dev/null 2>&1; then
+    missing=""
+    for lib in $QT_LIBS; do
+        ldconfig -p 2>/dev/null | grep -qF "$lib" || missing="${missing} ${lib}"
+    done
+
+    if [ -n "$missing" ]; then
+        pkgs=""
+        for lib in $missing; do
+            p="$(pkg_for_soname "$lib" || true)"
+            case " $pkgs " in *" $p "*) ;; *) pkgs="${pkgs} ${p}" ;; esac
+        done
+        log_warn "QtTermTCP needs Qt5 libraries that are not installed"
+        log_dim "missing:${missing}"
+        log_dim "install them with:"
+        log_dim "  sudo apt install${pkgs}"
+        log_dim "until then the binary is in place but will not start"
+    else
+        log_info "Qt5 runtime libraries are present"
+    fi
+fi
+
+log_dim "connect it to this node at localhost:8010, with the operator callsign"
+log_dim "and password 'p' as set in bpq32.cfg"

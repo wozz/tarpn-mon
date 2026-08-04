@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=QtTermTCP
+GenericName=Packet Terminal
+Comment=Terminal for the local packet node
+Exec=/usr/local/bin/qttermtcp
+Terminal=false
+Categories=Network;HamRadio;
+Keywords=packet;ax25;tarpn;radio;terminal;

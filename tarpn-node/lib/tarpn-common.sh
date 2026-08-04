@@ -16,6 +16,7 @@ TARPN_ETC="${TARPN_ETC:-/etc/tarpn}"              # operator-owned config
 TARPN_STATE="${TARPN_STATE:-/var/lib/tarpn}"      # runtime state, bpq workdir
 TARPN_UNIT_DIR="${TARPN_UNIT_DIR:-/etc/systemd/system}"
 TARPN_BINDIR="${TARPN_BINDIR:-/usr/local/bin}"
+TARPN_DESKTOP_DIR="${TARPN_DESKTOP_DIR:-/usr/share/applications}"
 
 TARPN_MODULE_SRC="${TARPN_MODULE_SRC:-${TARPN_PREFIX}/modules}"
 TARPN_MODULE_STATE="${TARPN_STATE}/modules"
@@ -242,6 +243,52 @@ unit_restart_if_active() {
 # an unrunnable binary in place.
 
 LINBPQ_UPSTREAM_BASE="${LINBPQ_UPSTREAM_BASE:-https://www.cantab.net/users/john.wiseman/Downloads/Beta}"
+
+# elf_arch_of <file> -> arm32 | arm64 | amd64 | x86 | unknown
+#
+# Uses file(1) when present and falls back to reading the ELF header, since
+# file is not installed on a minimal image. Byte 4 is the class (1=32, 2=64)
+# and byte 18 the machine (0x28 ARM, 0xB7 aarch64, 0x3E x86-64, 0x03 i386).
+elf_arch_of() {
+    local f="$1" desc klass machine
+    if command -v file >/dev/null 2>&1; then
+        desc="$(file -b "$f" 2>/dev/null || true)"
+        case "$desc" in
+            *"ARM aarch64"*) printf 'arm64'; return 0 ;;
+            *32-bit*ARM*)    printf 'arm32'; return 0 ;;
+            *x86-64*)        printf 'amd64'; return 0 ;;
+            *80386*)         printf 'x86';   return 0 ;;
+        esac
+    fi
+    klass="$(od -An -tu1 -j4  -N1 "$f" 2>/dev/null | tr -d ' ')"
+    machine="$(od -An -tu1 -j18 -N1 "$f" 2>/dev/null | tr -d ' ')"
+    case "${klass}:${machine}" in
+        1:40)  printf 'arm32' ;;
+        2:183) printf 'arm64' ;;
+        2:62)  printf 'amd64' ;;
+        1:3)   printf 'x86'   ;;
+        *)     printf 'unknown' ;;
+    esac
+}
+
+# QtTermTCP, G8BPQ's terminal program. Same download area as LinBPQ, and the
+# build names follow the same pattern. Verified against the published files:
+#   piQtTermTCP    ELF 32-bit ARM      piQtTermTCP64  ELF 64-bit ARM aarch64
+#   QtTermTCP      ELF 32-bit i386     QtTermTCP64    ELF 64-bit x86-64
+qtterm_upstream_name() {
+    case "$1" in
+        arm32) printf 'piQtTermTCP'   ;;
+        arm64) printf 'piQtTermTCP64' ;;
+        amd64) printf 'QtTermTCP64'   ;;
+        *)     return 1 ;;
+    esac
+}
+
+qtterm_upstream_url() {
+    local name
+    name="$(qtterm_upstream_name "$1")" || return 1
+    printf '%s/%s' "$LINBPQ_UPSTREAM_BASE" "$name"
+}
 
 linbpq_upstream_name() {
     case "$1" in

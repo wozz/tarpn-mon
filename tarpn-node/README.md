@@ -70,6 +70,27 @@ fetched separately from `RELEASE_BASE_URL` in `tarpn.conf`, because they
 cannot be built on a node — `tarpn-mon` embeds a frontend that needs npm, and
 `tarpn-chat` needs a Rust musl toolchain.
 
+### QtTermTCP on the node's desktop
+
+The stock TARPN installer puts a **32-bit** QtTermTCP on the Pi desktop, so it
+stops working on a 64-bit image. G8BPQ publishes a build per architecture and
+the `qtterm` module installs the right one, adds a menu entry, and checks the
+Qt5 libraries it needs:
+
+```bash
+sudo tarpnctl install qtterm
+```
+
+Only needed if someone uses the node's own desktop, over VNC or a monitor.
+Running QtTermTCP on another machine and pointing it at the node over the
+network needs nothing installed here.
+
+Unlike everything else, QtTermTCP is a dynamically linked Qt5 application, so
+it needs Qt5 runtime libraries. The module reports exactly which are missing
+and the `apt install` line for them — the package names differ between Debian
+releases because of the 64-bit `time_t` transition, so it resolves them
+against your system rather than assuming.
+
 ### Optional system packages
 
 The installer does not run `apt`. One optional package is worth knowing about:
@@ -151,6 +172,7 @@ sudo tarpnctl import-node-ini /home/pi/node.ini
 | `tarpn-mon`  | Monitoring backend and web UI on :8212, replaces TARPN Home | yes  |
 | `tarpn-chat` | NetROM chat server, replaces LinBPQ's built-in LINCHAT   | opt-in  |
 | `node-commands` | `TRR`, `TINFO`, `LINKTEST`, `LINUX` at the node prompt | opt-in |
+| `qtterm`     | QtTermTCP on the node's own desktop, for VNC/local users | opt-in |
 
 `tarpn-chat` is not installed by default because it takes chat away from
 LinBPQ and needs LinBPQ 6.0.25 or newer for `NETROMPORT`. Add it with
