@@ -211,7 +211,18 @@ fi
 if [ "$INSTALL_ALL" = true ]; then
     SELECTED="$(module_list_available | tr '\n' ' ')"
 elif [ -z "$SELECTED" ]; then
-    SELECTED="$DEFAULT_MODULES"
+    # On a re-run, update whatever is actually installed rather than reverting
+    # to the default set. Otherwise a module the operator added later - qtterm,
+    # node-commands, tarpn-chat - silently stops being updated by the very
+    # command that is supposed to update everything.
+    for _m in $(module_list_available); do
+        module_is_installed "$_m" && SELECTED="${SELECTED} ${_m}"
+    done
+    if [ -n "$SELECTED" ]; then
+        log_info "Updating the modules already installed"
+    else
+        SELECTED="$DEFAULT_MODULES"
+    fi
 fi
 
 log_info "Modules: ${SELECTED}"
@@ -237,6 +248,20 @@ systemd_reload
 
 for m in $INSTALLED; do
     module_enable "$m"
+done
+
+# Replacing a binary on disk does not restart whatever is running the old one,
+# so without this an update appears to succeed while the node carries on with
+# the previous version. Only restarts services that were already up: a fresh
+# install starts nothing, and a service the operator deliberately stopped
+# stays stopped.
+for m in $INSTALLED; do
+    for u in $(module_enable_units "$m"); do
+        if unit_is_active "$u"; then
+            log_dim "restarting ${u}"
+            unit_restart_if_active "$u"
+        fi
+    done
 done
 
 # ---------------------------------------------------------------------------

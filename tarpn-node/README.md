@@ -64,11 +64,34 @@ git clone https://github.com/wozz/tarpn-mon.git
 cd tarpn-mon/tarpn-node && sudo ./install.sh
 ```
 
-Updating is then `git pull && sudo ./install.sh`, which restages the tree and
-re-runs the module hooks. Only the shell tree comes from git; the binaries are
-fetched separately from `RELEASE_BASE_URL` in `tarpn.conf`, because they
-cannot be built on a node — `tarpn-mon` embeds a frontend that needs npm, and
-`tarpn-chat` needs a Rust musl toolchain.
+### Updating
+
+Two commands, from the checkout:
+
+```bash
+git pull
+sudo ./install.sh
+```
+
+`git pull` only updates the checkout; `/opt/tarpn` is a copy, so `install.sh`
+has to restage it. That second command then:
+
+- restages `/opt/tarpn` from the checkout, so `tarpnctl` and the module code
+  are current
+- re-runs the hooks for **every module already installed**, not just the
+  default set, so anything added later (`qtterm`, `node-commands`,
+  `tarpn-chat`) is updated too
+- re-fetches binaries from the release channel
+- restarts services that were already running, so a replaced binary actually
+  takes effect — services that were deliberately stopped stay stopped
+
+`sudo tarpnctl update` does the same for the installed modules without
+restaging from git; use it when only the binaries need refreshing.
+
+Only the shell tree comes from git. The binaries are fetched separately from
+`RELEASE_BASE_URL` in `tarpn.conf`, because they cannot be built on a node —
+`tarpn-mon` embeds a frontend that needs npm, and `tarpn-chat` needs a Rust
+musl toolchain.
 
 ### QtTermTCP on the node's desktop
 
