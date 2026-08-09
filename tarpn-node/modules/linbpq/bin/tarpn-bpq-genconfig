@@ -198,11 +198,23 @@ case "$(nc LEGACY_TARPN_APPS false)" in
         ;;
 esac
 
+# HOST mode gives the operator a terminal into their own node from the node's
+# own console, over a pseudo-terminal LinBPQ creates rather than over the
+# network. The hostmode module turns this on and provides the terminal.
+#
+# The console device lives in BPQ_HOME rather than the legacy
+# /home/pi/minicom/com8, so it is inside the directory the engine already has
+# write access to and nothing has to be carved out for it.
+host_comport="$(nc HOST_COMPORT "")"
+if [ -z "$host_comport" ]; then
+    host_comport="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)/console"
+fi
+tok host-comport "$host_comport"
+
 case "$(nc HOST_MODE disabled)" in
     enabled|true|yes|on)
         tok host-enable ""
         tok host-mode-echo HOST-MODE-ENABLED
-        log_warn "HOST_MODE is enabled; it expects a minicom serial setup that this installation does not create"
         ;;
     *)
         tok host-enable ";"

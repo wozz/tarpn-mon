@@ -30,6 +30,8 @@ Node control
   disable [module]       do not start at boot
   logs [module] [-f]     journalctl for the node or one module
 
+  host                   open a terminal into this node from its own console
+
 Diagnostics
   doctor                 check this host can run everything, and say what cannot
 
@@ -333,6 +335,18 @@ cmd_doctor() {
     fi
 }
 
+# The terminal itself belongs to the hostmode module; this is just a familiar
+# way to reach it, mirroring the stock `tarpn host`.
+cmd_host() {
+    local runner="${TARPN_PREFIX}/modules/hostmode/bin/tarpn-host"
+    if [ ! -x "$runner" ]; then
+        log_err "the hostmode module is not installed"
+        log_dim "sudo tarpnctl install hostmode"
+        exit 1
+    fi
+    exec "$runner" "$@"
+}
+
 cmd_list() {
     printf '%-14s %-10s %s\n' MODULE STATUS SUMMARY
     local name status
@@ -510,6 +524,7 @@ cmd_import() {
 case "$CMD" in
     status)          cmd_status ;;
     doctor)          cmd_doctor ;;
+    host)            cmd_host ;;
     list)            cmd_list ;;
     start|stop|restart) cmd_lifecycle "$CMD" "$@" ;;
     enable)          cmd_enable "$@" ;;

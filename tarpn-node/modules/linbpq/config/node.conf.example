@@ -60,10 +60,15 @@ CHAT_PROVIDER=linbpq
 # CHAT_PROVIDER=tarpn-chat. Requires LinBPQ 6.0.25 or newer.
 NETROM_PORT=63119
 
-# HOST mode exposes a TNC2-style port over a local serial device for terminal
-# programs. It depends on the legacy minicom setup, which this installation
-# method does not ship, so it is off by default.
+# HOST mode gives you a terminal into this node from the node's own console,
+# over a pseudo-terminal rather than the network. Install the `hostmode`
+# module and it sets this for you; `tarpnctl host` then opens the session.
 HOST_MODE=disabled
+
+# Where LinBPQ puts that pseudo-terminal. Defaults to console in BPQ_HOME,
+# which is already writable by the engine. Only change it if something else
+# expects the device somewhere specific.
+HOST_COMPORT=
 
 # The stock TARPN config also declares TARPN Home: APPLICATION 4/5/6 and
 # TNCPORTs bound to /home/pi/minicom/com*. This installation ships neither,

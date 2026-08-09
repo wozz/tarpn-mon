@@ -114,12 +114,34 @@ and the `apt install` line for them — the package names differ between Debian
 releases because of the 64-bit `time_t` transition, so it resolves them
 against your system rather than assuming.
 
+### A terminal on the node itself
+
+HOST mode gives the operator a `cmd:` prompt into their own node from the
+node's console, over a pseudo-terminal rather than the network:
+
+```bash
+sudo tarpnctl install hostmode
+sudo tarpnctl apply        # adds the console port, restarts the engine
+tarpnctl host              # or: tarpn-host
+```
+
+The stock equivalent is `tarpn host`, which runs `piminicom` - stock minicom
+plus a one-line patch playing a sound file on the terminal bell - against
+`/home/pi/minicom/com8`. Only a 32-bit ARM build of that is published, so it
+stops working on a 64-bit image.
+
+This module uses stock `minicom` from Debian and puts the console device in
+`BPQ_HOME`. The one thing not carried over is that audible chime on an
+incoming connection: `cbell on` still rings the terminal bell, but whether
+that makes a sound is up to the terminal.
+
 ### Optional system packages
 
 The installer does not run `apt`. One optional package is worth knowing about:
 
 ```bash
 sudo apt install sqlite3      # only needed for the TRR node command
+sudo apt install minicom      # only needed for the hostmode module
 ```
 
 `TRR` reads tarpn-mon's statistics database through the `sqlite3` CLI, which
@@ -196,6 +218,7 @@ sudo tarpnctl import-node-ini /home/pi/node.ini
 | `tarpn-chat` | NetROM chat server, replaces LinBPQ's built-in LINCHAT   | opt-in  |
 | `node-commands` | `TRR`, `TINFO`, `LINKTEST`, `LINUX` at the node prompt | opt-in |
 | `qtterm`     | QtTermTCP on the node's own desktop, for VNC/local users | opt-in |
+| `hostmode`   | Terminal into the node from its own console (HOST mode)  | opt-in |
 
 `tarpn-chat` is not installed by default because it takes chat away from
 LinBPQ and needs LinBPQ 6.0.25 or newer for `NETROMPORT`. Add it with
