@@ -1,11 +1,58 @@
-# Migrating an existing TARPN node
+# Move an existing TARPN node over
 
-This installer does not modify, patch or remove anything the stock installer
-created. Migration is therefore reversible: until you disable the legacy
-services and start this node, nothing has changed.
+Your node keeps its callsign, neighbours, ports and everything else — the
+settings are read out of your existing `node.ini`.
 
-Both stacks must not run at the same time. Two copies of LinBPQ would fight
-over the same USB TNCs, and both would broadcast TARPNstat.
+Nothing the stock installer created is modified, patched or removed. Until you
+disable the legacy services in step 4, nothing has changed and you can walk
+away at any point.
+
+## The short version
+
+```bash
+# 1. keep a copy of the one file you cannot regenerate
+cp /home/pi/node.ini ~/node.ini.backup
+
+# 2. install alongside the existing setup, touching nothing
+git clone https://github.com/wozz/tarpn-mon.git
+cd tarpn-mon/tarpn-node
+sudo ./install.sh --alongside
+
+# 3. bring your settings across, and check them
+sudo tarpnctl import-node-ini /home/pi/node.ini
+tarpnctl doctor
+
+# 4. hand the radios over
+sudo systemctl disable --now tarpn.service home.service tarpn_mon.service \
+     statusmonitor.service rx_tarpnstat.service neighbor_port_association.service
+sudo tarpnctl start
+
+# 5. confirm
+tarpnctl status
+tarpnctl logs -f
+```
+
+Then check from the node itself that `PORTS`, `ROUTES` and `NODES` look the way
+they did before. Neighbours reappear as their links re-establish.
+
+**Both stacks must not run at once** — two copies of LinBPQ would fight over
+the same USB TNCs, and both would broadcast link statistics. That is what step
+4 prevents.
+
+### Going back
+
+Nothing the legacy installer owns was changed, so:
+
+```bash
+sudo tarpnctl stop
+sudo systemctl disable --now tarpn.target
+sudo systemctl enable  --now tarpn.service
+```
+
+---
+
+The rest of this document is detail: exactly what gets carried across, what
+does not, and the things worth watching. You do not need it to migrate.
 
 ## 1. Take stock
 
@@ -116,17 +163,11 @@ Then check from the node itself that links come up: `PORTS`, `ROUTES` and
 `NODES` should look as they did before, and neighbours should reappear as
 their links establish.
 
-## Rolling back
+## Removing this installation
 
-Nothing the legacy installer owns was changed, so:
-
-```bash
-sudo tarpnctl stop
-sudo systemctl disable --now tarpn.target
-sudo systemctl enable --now tarpn.service
-```
-
-To remove this installation entirely:
+Handing the radios back is the three commands under
+[Going back](#going-back) above. To take this installation off the machine
+entirely as well:
 
 ```bash
 sudo ./install.sh --uninstall          # keeps /etc/tarpn and /var/lib/tarpn
