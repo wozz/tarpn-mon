@@ -242,7 +242,39 @@ download_file() {
         return 0
     fi
 
-    curl -sSL --progress-bar "$url" -o "$dest"
+    # -f matters. Without it curl happily writes an HTTP error body to the
+    # destination file and exits 0, so a missing object in the bucket becomes
+    # a "binary" containing S3's AccessDenied XML, which then gets chmod +x
+    # and fails at runtime with something unrecognisable. Download to a temp
+    # file, and only accept it if it is really an executable.
+    local tmp
+    tmp="$(mktemp "${dest}.XXXXXX")" || return 1
+
+    if ! curl -fsSL "$url" -o "$tmp"; then
+        rm -f "$tmp"
+        log_error "Download failed: $url"
+        log_error "That architecture may not be published. Nothing was written."
+        return 1
+    fi
+
+    mv "$tmp" "$dest"
+}
+
+# For the compiled programs. An object missing from the bucket is the common
+# case - an architecture that has not been published - and without this the
+# error body becomes the "binary".
+download_binary() {
+    local url="$1" dest="$2"
+
+    download_file "$url" "$dest" || return 1
+    [ "$DRY_RUN" = true ] && return 0
+
+    if ! head -c4 "$dest" | grep -q $'\x7fELF'; then
+        log_error "Downloaded file is not an executable: $url"
+        log_error "First bytes: $(head -c 80 "$dest" | tr -d '\0' | tr '\n' ' ')"
+        rm -f "$dest"
+        return 1
+    fi
 }
 
 # Check if a systemd service exists and is enabled
@@ -462,7 +494,7 @@ install_tarpn_mon() {
     if [ "$DRY_RUN" = true ]; then
         log_info "[DRY-RUN] Would download: $download_url"
     else
-        download_file "$download_url" "${TARPN_MON_DIR}/tarpn-mon"
+        download_binary "$download_url" "${TARPN_MON_DIR}/tarpn-mon"
         chmod +x "${TARPN_MON_DIR}/tarpn-mon"
     fi
 
@@ -643,7 +675,7 @@ install_tarpn_chat() {
     if [ "$DRY_RUN" = true ]; then
         log_info "[DRY-RUN] Would download: $download_url"
     else
-        download_file "$download_url" "${TARPN_CHAT_DIR}/tarpn-chat"
+        download_binary "$download_url" "${TARPN_CHAT_DIR}/tarpn-chat"
         chmod +x "${TARPN_CHAT_DIR}/tarpn-chat"
     fi
 
@@ -916,7 +948,7 @@ install_sendroutesviacq() {
         log_info "[DRY-RUN] Would download: $download_url"
     else
         mkdir -p "$SENDROUTESVIACQ_DIR"
-        download_file "$download_url" "${SENDROUTESVIACQ_DIR}/send-routes-via-cq"
+        download_binary "$download_url" "${SENDROUTESVIACQ_DIR}/send-routes-via-cq"
         chmod +x "${SENDROUTESVIACQ_DIR}/send-routes-via-cq"
         chown pi:pi "${SENDROUTESVIACQ_DIR}/send-routes-via-cq" 2>/dev/null || true
     fi
