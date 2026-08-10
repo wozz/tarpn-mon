@@ -37,13 +37,13 @@ missing.
 | `linbpq` | The node engine, and `bpq32.cfg` generated from your settings | yes |
 | `tarpn-mon` | Monitoring and a web interface on port 8212 | yes |
 | `routes` | Broadcasts link quality to neighbours every 15 minutes | yes |
-| `node-commands` | `TRR`, `TINFO`, `LINKTEST`, `LINUX` at the node prompt | no |
-| `tarpn-chat` | Chat server, replacing LinBPQ's built-in one | no |
-| `qtterm` | QtTermTCP on the node's own desktop, for VNC users | no |
-| `hostmode` | A terminal into the node from the node's own console | no |
+| `node-commands` | `TRR`, `TINFO`, `LINKTEST`, `LINUX` at the node prompt | yes |
+| `tarpn-chat` | Chat server, replacing LinBPQ's built-in one | yes |
+| `qtterm` | QtTermTCP on the node's own desktop, for VNC users | yes |
+| `hostmode` | A terminal into the node from the node's own console | yes |
 
-Each one can be installed, removed or switched off on its own without
-disturbing the rest. See [Choose modules](docs/install-modules.md).
+Everything is installed by default. Each piece can be removed or switched
+off on its own without disturbing the rest. See [Choose modules](docs/install-modules.md).
 
 ## Everyday commands
 
@@ -104,6 +104,6 @@ to until your links come up.
 | [docs/install-fresh.md](docs/install-fresh.md) | Setting up a new node |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | Moving an existing TARPN node over |
 | [docs/updating.md](docs/updating.md) | Updating an installation |
-| [docs/install-modules.md](docs/install-modules.md) | The optional pieces |
+| [docs/install-modules.md](docs/install-modules.md) | What each module does, and removing ones you do not want |
 | [docs/DESIGN.md](docs/DESIGN.md) | How it works and why, and what was left out |
 | [docs/INTERFACES.md](docs/INTERFACES.md) | Replacing a component with your own |

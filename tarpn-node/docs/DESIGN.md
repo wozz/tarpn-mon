@@ -28,6 +28,7 @@ bin/                executables, referenced in place by the units
 config/             defaults and examples, seeded but never overwritten
 templates/          runtime data files
 hooks/postinstall   optional, sourced during install
+hooks/configure     optional, sourced by `tarpnctl apply`
 hooks/preremove     optional, sourced before removal
 ```
 
@@ -59,6 +60,14 @@ Hooks are *sourced*, not executed, so they inherit the resolved layout, the
 logging helpers and `--dry-run` handling without re-deriving any of it. A hook
 that mutates the system must wrap the mutation in `run`, or `--dry-run` will
 lie.
+
+`configure` exists because modules are installed before the operator has
+entered anything: on a fresh node, `node.conf` is still the shipped example
+when `tarpn-chat` first runs, so a chat identity derived from it would be
+`N0CALL-9` and would never be corrected. `tarpnctl apply` runs `configure` for
+every installed module, which is where "make what is running match node.conf"
+belongs. It must be idempotent and must not overwrite anything the operator
+has edited by hand.
 
 The entire `modules/` tree is staged on disk whether or not a module is
 activated, so enabling one later needs neither the network nor the source

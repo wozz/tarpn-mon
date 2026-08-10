@@ -24,10 +24,20 @@ export TARPN_SELF_DIR
 # Run out of the source tree during install; the staged copy takes over after.
 . "${TARPN_SELF_DIR}/lib/tarpn-common.sh"
 
-# tarpn-chat is deliberately not in the default set: it takes chat away from
-# LinBPQ, and it needs LinBPQ 6.0.25+ for NETROMPORT. Opt in with
-# `--all` or `--modules ...,tarpn-chat`.
-DEFAULT_MODULES="core linbpq routes tarpn-mon"
+# Everything, because a node that is missing a piece is harder to explain than
+# a node that has one it does not use. In particular tarpn-mon's chat screen
+# talks to tarpn-chat and nothing else - LinBPQ's own chat is not reachable
+# from it - so leaving tarpn-chat out just makes chat look broken.
+#
+# The order matters:
+#   linbpq before tarpn-chat   - tarpn-chat writes CHAT_PROVIDER into the
+#                                node.conf that linbpq seeds
+#   tarpn-chat before tarpn-mon - so tarpn-mon seeds its chat feature enabled
+#   tarpn-mon before node-commands - node-commands only offers TRR when
+#                                tarpn-mon is there to supply the data
+#
+# `--modules core,linbpq` and friends still install a subset.
+DEFAULT_MODULES="core linbpq tarpn-chat tarpn-mon routes node-commands hostmode qtterm"
 SELECTED=""
 INSTALL_ALL=false
 UNINSTALL=false

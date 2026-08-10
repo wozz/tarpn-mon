@@ -1,0 +1,120 @@
+#!/bin/bash
+# tarpn-chat/configure - keep tarpn-chat.toml consistent with node.conf.
+#
+# Run by `tarpnctl apply`, and by this module's own postinstall.
+#
+# This matters most on a fresh install: the modules are installed before the
+# operator has entered their callsign, so the chat identity would otherwise be
+# derived from the placeholder in the shipped node.conf and never corrected -
+# chat would come up on N0CALL-9 and quietly fail to be anyone.
+#
+# Only touches files this module generated, identified by the marker below.
+# A hand-written tarpn-chat.toml is left alone.
+set -euo pipefail
+
+_ct_conf="${TARPN_ETC}/tarpn-chat.toml"
+_ct_marker="# Managed by the tarpn-chat module"
+_ct_legacy_marker="on first install of the tarpn-chat module"
+
+_ct_user="$(resolve_tarpn_user)"
+_ct_group="$(id -gn "$_ct_user" 2>/dev/null || echo "$_ct_user")"
+
+# --- what the identity should be -----------------------------------------
+_ct_call="$(conf_get "$TARPN_NODE_CONF" CHAT_CALL "")"
+if [ -z "$_ct_call" ]; then
+    _ct_node="$(conf_get "$TARPN_NODE_CONF" NODE_CALL "")"
+    [ -n "$_ct_node" ] && _ct_call="$(call_base "$_ct_node")-9"
+fi
+
+if [ -z "$_ct_call" ]; then
+    log_warn "no CHAT_CALL or NODE_CALL in ${TARPN_NODE_CONF}; chat identity unset"
+    return 0 2>/dev/null || exit 0
+fi
+
+_ct_call="$(call_upper "$_ct_call")"
+_ct_alias="$(call_upper "$(chat_alias "$_ct_call")")"
+_ct_netrom="$(conf_get "$TARPN_NODE_CONF" NETROM_PORT 63119)"
+
+# --- create it if it is not there ----------------------------------------
+if [ ! -f "$_ct_conf" ]; then
+    if [ "$TARPN_DRY_RUN" = true ]; then
+        log_dim "would write ${_ct_conf}"
+        return 0 2>/dev/null || exit 0
+    fi
+
+    log_info "Chat node: ${_ct_call} (${_ct_alias})"
+    {
+        printf '%s\n' "$_ct_marker"
+        printf '# The [node] call and alias are kept in step with node.conf by\n'
+        printf '# `tarpnctl apply`. Everything else here is yours to edit.\n\n'
+        printf '[node]\n'
+        printf 'call = "%s"\n' "$_ct_call"
+        printf 'alias = "%s"\n\n' "$_ct_alias"
+        printf '# LinBPQ NetROM host port. Must match NETROM_PORT in node.conf,\n'
+        printf '# and needs LinBPQ 6.0.25 or newer.\n'
+        printf '[netrom]\n'
+        printf 'linbpq = "127.0.0.1:%s"\n\n' "$_ct_netrom"
+        printf '# Local WebSocket API the tarpn-mon backend connects to.\n'
+        printf '# Loopback only: this is not an RF-facing service.\n'
+        printf '[client]\n'
+        printf 'port = 8513\n'
+        printf 'bind = "127.0.0.1"\n'
+        printf 'max_clients = 10\n'
+    } > "$_ct_conf"
+
+    # Carry chat peers over from a legacy chatconfig.cfg if there is one.
+    _ct_bpq="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+    for _ct_legacy in "${_ct_bpq}/chatconfig.cfg" /home/pi/bpq/chatconfig.cfg \
+                      /home/pi/linbpq/chatconfig.cfg; do
+        [ -f "$_ct_legacy" ] || continue
+        _ct_peers="$(grep -i 'OtherChatNodes' "$_ct_legacy" 2>/dev/null \
+            | sed -E 's/.*OtherChatNodes[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' | head -1 \
+            | sed 's/\\r\\n/\n/g; s/\\n/\n/g' | grep ':' || true)"
+        [ -n "$_ct_peers" ] || continue
+        log_info "Importing chat peers from ${_ct_legacy}"
+        printf '\n# Chat peers imported from %s\n' "$_ct_legacy" >> "$_ct_conf"
+        printf '%s\n' "$_ct_peers" | while IFS=':' read -r _a _c; do
+            _a="$(printf '%s' "$_a" | tr -d ' ')"; _c="$(printf '%s' "$_c" | tr -d ' ')"
+            [ -n "$_a" ] && [ -n "$_c" ] || continue
+            printf '\n[[known_nodes]]\ncall = "%s"\nalias = "%s"\n' \
+                "$(call_upper "$_c")" "$(call_upper "$_a")" >> "$_ct_conf"
+            log_dim "peer ${_c} (${_a})"
+        done
+        break
+    done
+
+    chown "$_ct_user:$_ct_group" "$_ct_conf" 2>/dev/null || true
+    chmod 0644 "$_ct_conf"
+    log_info "Wrote ${_ct_conf}"
+    return 0 2>/dev/null || exit 0
+fi
+
+# --- otherwise keep the identity in step ---------------------------------
+if ! grep -qF "$_ct_marker" "$_ct_conf" && ! grep -qF "$_ct_legacy_marker" "$_ct_conf"; then
+    log_dim "$(basename "$_ct_conf") is hand-written; leaving it alone"
+    return 0 2>/dev/null || exit 0
+fi
+
+_ct_current="$(grep -m1 '^call[[:space:]]*=' "$_ct_conf" 2>/dev/null | cut -d'"' -f2 || true)"
+if [ "$_ct_current" = "$_ct_call" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+if [ "$TARPN_DRY_RUN" = true ]; then
+    log_dim "would update the chat callsign from ${_ct_current:-unset} to ${_ct_call}"
+    return 0 2>/dev/null || exit 0
+fi
+
+# Rewrite only the two identity lines; peers and ports the operator set stay.
+_ct_tmp="$(mktemp "${_ct_conf}.XXXXXX")"
+awk -v call="$_ct_call" -v alias="$_ct_alias" '
+    !done_call  && /^call[[:space:]]*=/  { print "call = \"" call "\"";   done_call=1; next }
+    !done_alias && /^alias[[:space:]]*=/ { print "alias = \"" alias "\""; done_alias=1; next }
+    { print }
+' "$_ct_conf" > "$_ct_tmp"
+chmod 0644 "$_ct_tmp"
+chown "$_ct_user:$_ct_group" "$_ct_tmp" 2>/dev/null || true
+mv "$_ct_tmp" "$_ct_conf"
+
+log_info "Chat callsign updated to ${_ct_call} (${_ct_alias})"
+log_warn "restart it to pick that up: sudo systemctl restart tarpn-chat"

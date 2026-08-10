@@ -12,7 +12,7 @@ sudo tarpnctl remove  <name>     your settings are kept
 Removing a module never deletes anything in `/etc/tarpn`, so reinstalling
 picks up where you left off.
 
-## Installed by default
+## The node itself
 
 ### `core`
 The directory layout, `tarpn.conf`, and the `tarpn.target` group that lets you
@@ -47,7 +47,10 @@ understands.
 Leave it out if the legacy `statusmonitor.sh` is still running on the same
 machine, or the node will send the same thing twice.
 
-## Optional
+## The extras
+
+These are installed by default too. Each is useful only in some setups, so
+they are the ones to remove if you do not want them.
 
 ### `node-commands` — commands at the node prompt
 Restores `TRR`, `TINFO`, `LINKTEST` and `LINUX` for stations that connect to

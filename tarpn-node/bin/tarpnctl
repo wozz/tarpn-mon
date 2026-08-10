@@ -424,6 +424,17 @@ cmd_apply() {
     log_step "Regenerating bpq32.cfg"
     genconfig
 
+    # Give every installed module a chance to bring its own config back in
+    # step with node.conf. On a fresh node the modules are installed before
+    # the operator has entered a callsign, so anything derived from it - the
+    # chat identity in particular - is a placeholder until this runs.
+    local name
+    for name in $(module_list_available); do
+        module_is_installed "$name" || continue
+        module_run_hook "$name" configure || \
+            log_warn "module ${name}: configure hook failed"
+    done
+
     # Only restart what actually consumes the config. Monitoring and chat are
     # deliberately not restarted: they reconnect on their own and restarting
     # them would throw away buffered history.

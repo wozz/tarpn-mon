@@ -12,83 +12,11 @@ run install -d -m 0755 "${mod}/bin"
 install_release_binary tarpn-chat "${mod}/bin/tarpn-chat"
 run install -d -m 0755 -o "$user" -g "$group" "$state"
 
-# --- work out the chat identity from node.conf --------------------------
-chat_call="$(conf_get "$TARPN_NODE_CONF" CHAT_CALL "")"
-node_call="$(conf_get "$TARPN_NODE_CONF" NODE_CALL "")"
-if [ -z "$chat_call" ] && [ -n "$node_call" ]; then
-    chat_call="$(call_base "$node_call")-9"
-fi
-netrom_port="$(conf_get "$TARPN_NODE_CONF" NETROM_PORT 63119)"
-
-# Parse OtherChatNodes out of a legacy chatconfig.cfg so an existing node keeps
-# recognising its chat peers. The value is one quoted string with literal \r\n
-# separators between ALIAS:CALL pairs.
-find_legacy_chatconfig() {
-    local bpq_home p
-    bpq_home="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
-    for p in "${bpq_home}/chatconfig.cfg" /home/pi/bpq/chatconfig.cfg /home/pi/linbpq/chatconfig.cfg; do
-        [ -f "$p" ] && { printf '%s' "$p"; return 0; }
-    done
-    return 1
-}
-
-# --- generate the config, once ------------------------------------------
-if [ -f "$conf" ]; then
-    log_dim "$(basename "$conf") exists, leaving it alone"
-elif [ "$TARPN_DRY_RUN" = true ]; then
-    log_dim "would write ${conf}"
-elif [ -z "$chat_call" ]; then
-    log_warn "no CHAT_CALL or NODE_CALL in ${TARPN_NODE_CONF}"
-    log_dim "configure the node first, then: sudo tarpnctl update tarpn-chat"
-else
-    alias="$(chat_alias "$chat_call")"
-    log_info "Chat node: ${chat_call} (${alias})"
-
-    {
-        printf '# /etc/tarpn/tarpn-chat.toml\n'
-        printf '#\n'
-        printf '# Generated from %s on first install of the tarpn-chat module.\n' "$TARPN_NODE_CONF"
-        printf '# Edited by hand from here on - updates will not overwrite it.\n\n'
-        printf '[node]\n'
-        printf 'call = "%s"\n' "$(call_upper "$chat_call")"
-        printf 'alias = "%s"\n\n' "$(call_upper "$alias")"
-        printf '# LinBPQ NetROM host port. Must match NETROM_PORT in node.conf,\n'
-        printf '# and needs LinBPQ 6.0.25 or newer.\n'
-        printf '[netrom]\n'
-        printf 'linbpq = "127.0.0.1:%s"\n\n' "$netrom_port"
-        printf '# Local WebSocket API that the tarpn-mon backend connects to.\n'
-        printf '# Bound to loopback: this is not an RF-facing service.\n'
-        printf '[client]\n'
-        printf 'port = 8513\n'
-        printf 'bind = "127.0.0.1"\n'
-        printf 'max_clients = 10\n'
-    } > "$conf"
-
-    legacy="$(find_legacy_chatconfig || true)"
-    if [ -n "$legacy" ]; then
-        peers="$(grep -i 'OtherChatNodes' "$legacy" 2>/dev/null \
-            | sed -E 's/.*OtherChatNodes[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' | head -1 \
-            | sed 's/\\r\\n/\n/g; s/\\n/\n/g' | grep ':' || true)"
-        if [ -n "$peers" ]; then
-            log_info "Importing chat peers from ${legacy}"
-            {
-                printf '\n# Chat peers imported from %s\n' "$legacy"
-            } >> "$conf"
-            printf '%s\n' "$peers" | while IFS=':' read -r a c; do
-                a="$(printf '%s' "$a" | tr -d ' ')"
-                c="$(printf '%s' "$c" | tr -d ' ')"
-                [ -n "$a" ] && [ -n "$c" ] || continue
-                printf '\n[[known_nodes]]\ncall = "%s"\nalias = "%s"\n' \
-                    "$(call_upper "$c")" "$(call_upper "$a")" >> "$conf"
-                log_dim "peer ${c} (${a})"
-            done
-        fi
-    fi
-
-    chown "$user:$group" "$conf"
-    chmod 0644 "$conf"
-    log_info "Wrote ${conf}"
-fi
+# --- config -------------------------------------------------------------
+# Delegated to the configure hook, which `tarpnctl apply` also runs, so the
+# chat identity is created here and then kept in step with node.conf as the
+# operator edits it.
+. "${mod}/hooks/configure"
 
 # --- hand chat over from LinBPQ -----------------------------------------
 # LinBPQ's built-in LINCHAT and this server would answer on the same callsign,
