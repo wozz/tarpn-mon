@@ -431,6 +431,14 @@ create_manifest() {
 }
 EOF
 
+    # Also write a per-architecture copy. manifest.json describes only the
+    # last architecture built, because each --arch run overwrites it; a
+    # release covering several architectures therefore cannot be described by
+    # that single file. Consumers wanting the whole picture read
+    # manifest-<arch>.json instead. manifest.json is kept because the older
+    # install.sh reads its "version" field for its update check.
+    cp "$manifest" "$BUILD_DIR/manifest-${TARGET_ARCH}.json"
+
     log_info "Created manifest: $manifest"
     cat "$manifest"
 }
@@ -483,6 +491,8 @@ upload_to_s3() {
         log_info "Uploading manifest..."
         aws s3 cp "$BUILD_DIR/manifest.json" "$s3_path/manifest.json" \
             --content-type "application/json"
+        aws s3 cp "$BUILD_DIR/manifest-${TARGET_ARCH}.json" \
+            "$s3_path/manifest-${TARGET_ARCH}.json" --content-type "application/json"
     fi
 
     # Also upload to 'latest' path for easy access.
