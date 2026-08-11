@@ -41,6 +41,15 @@ if [ -z "$1" ]; then
 fi
 
 VERSION="$1"
+
+# In-place edit that works with both GNU and BSD sed. GNU takes -i with an
+# optional suffix attached; BSD requires the suffix as its own argument, so a
+# bare `sed -i` fails on macOS - which is where this script tends to be run.
+sed_inplace() {
+    local expr="$1" file="$2"
+    sed "$expr" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
 NO_TAG=false
 if [ "$2" = "--no-tag" ]; then
     NO_TAG=true
@@ -75,7 +84,7 @@ echo ""
 # Step 1: Update files
 PACKAGE_JSON="$PROJECT_ROOT/tarpn-terminal/package.json"
 if [ -f "$PACKAGE_JSON" ]; then
-    sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$FILE_VERSION\"/" "$PACKAGE_JSON"
+    sed_inplace "s/\"version\": \"[^\"]*\"/\"version\": \"$FILE_VERSION\"/" "$PACKAGE_JSON"
     echo -e "${GREEN}Updated${NC} tarpn-terminal/package.json -> $FILE_VERSION"
 else
     echo -e "${YELLOW}Skipped${NC} tarpn-terminal/package.json (not found)"
@@ -83,7 +92,7 @@ fi
 
 CARGO_TOML="$PROJECT_ROOT/tarpn-chat/Cargo.toml"
 if [ -f "$CARGO_TOML" ]; then
-    sed -i "s/^version = \"[^\"]*\"/version = \"$FILE_VERSION\"/" "$CARGO_TOML"
+    sed_inplace "s/^version = \"[^\"]*\"/version = \"$FILE_VERSION\"/" "$CARGO_TOML"
     echo -e "${GREEN}Updated${NC} tarpn-chat/Cargo.toml -> $FILE_VERSION"
 else
     echo -e "${YELLOW}Skipped${NC} tarpn-chat/Cargo.toml (not found)"
