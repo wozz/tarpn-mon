@@ -119,7 +119,7 @@ func NewBBSClientWithConfig(config FeatureConfig) *BBSClient {
 
 // Connect establishes connection to the BPQ node
 func (b *BBSClient) Connect() error {
-	addr := fmt.Sprintf("%s:%d", b.hostname, b.port)
+	addr := net.JoinHostPort(b.hostname, strconv.Itoa(b.port))
 	bbsLog.Infow("Connecting", "addr", addr, "callsign", b.callsign)
 
 	b.mu.Lock()

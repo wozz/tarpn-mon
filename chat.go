@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -201,7 +203,7 @@ func (c *ChatClient) Connect() error {
 
 // doConnect performs the WebSocket connection to tarpn-chat
 func (c *ChatClient) doConnect() error {
-	wsURL := url.URL{Scheme: "ws", Host: fmt.Sprintf("%s:%d", c.hostname, c.port), Path: "/"}
+	wsURL := url.URL{Scheme: "ws", Host: net.JoinHostPort(c.hostname, strconv.Itoa(c.port)), Path: "/"}
 	chatLog.Infow("Connecting via WebSocket", "url", wsURL.String(), "callsign", c.callsign)
 
 	dialer := websocket.Dialer{

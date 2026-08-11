@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,7 +99,7 @@ func NewNodeClientWithConfig(config FeatureConfig) *NodeClient {
 
 // Connect establishes connection to the BPQ node
 func (n *NodeClient) Connect() error {
-	addr := fmt.Sprintf("%s:%d", n.hostname, n.port)
+	addr := net.JoinHostPort(n.hostname, strconv.Itoa(n.port))
 	nodeLog.Infow("Connecting", "addr", addr, "callsign", n.callsign)
 
 	n.mu.Lock()

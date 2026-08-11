@@ -140,7 +140,7 @@ func connectWithRetry(ctx context.Context) (net.Conn, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", hostname, targetPort))
+			conn, err := net.Dial("tcp", net.JoinHostPort(hostname, strconv.Itoa(targetPort)))
 			if err == nil {
 				mainLog.Infow("Connected to monitor port", "host", hostname, "port", targetPort)
 				return conn, nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -184,7 +185,7 @@ func (c *LinkStatsCollector) connectAndPoll(ctx context.Context) error {
 // connectWithRetry connects to LinBPQ with exponential backoff
 func (c *LinkStatsCollector) connectWithRetry(ctx context.Context) (net.Conn, error) {
 	backoff := initialBackoff
-	addr := fmt.Sprintf("%s:%d", c.config.Hostname, c.config.Port)
+	addr := net.JoinHostPort(c.config.Hostname, strconv.Itoa(c.config.Port))
 
 	for {
 		select {
@@ -320,7 +321,7 @@ func (c *LinkStatsCollector) sendCQBroadcasts() {
 	}
 
 	// Open a separate short-lived telnet connection for CQ sending
-	addr := fmt.Sprintf("%s:%d", c.config.Hostname, c.config.Port)
+	addr := net.JoinHostPort(c.config.Hostname, strconv.Itoa(c.config.Port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		statsLog.Warnw("CQ broadcast: failed to connect", "error", err)
@@ -563,7 +564,7 @@ func (c *LinkStatsCollector) sendBBSBulletin(subject, encoded string) {
 // trySendBBSBulletin makes a single attempt to send a BBS bulletin.
 // Returns nil on success, error on failure.
 func (c *LinkStatsCollector) trySendBBSBulletin(subject, encoded string) error {
-	addr := fmt.Sprintf("%s:%d", c.config.Hostname, c.config.Port)
+	addr := net.JoinHostPort(c.config.Hostname, strconv.Itoa(c.config.Port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("connect failed: %w", err)
