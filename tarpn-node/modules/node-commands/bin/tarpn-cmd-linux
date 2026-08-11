@@ -1,0 +1,60 @@
+#!/bin/bash
+# LINUX - offer the operator's own scripts to a connected station.
+#
+# Port of the legacy linux.sh. Same behaviour: list the scripts in the
+# extensions directory, ask which one to run, run it.
+#
+# It keeps WA2M's fix for the original path-traversal bug, where answering
+# "../something" would run a script from outside the extensions directory.
+# The answer is reduced to a basename and must match a listed file.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SELF_DIR}/_cmd-common.sh"
+
+# Legacy nodes keep these in /home/pi/bpq-extensions.
+EXT_DIR="$(conf_get "$TARPN_CONF" BPQ_EXTENSIONS_DIR "")"
+if [ -z "$EXT_DIR" ]; then
+    for d in "${TARPN_STATE}/extensions" /home/pi/bpq-extensions; do
+        [ -d "$d" ] && { EXT_DIR="$d"; break; }
+    done
+fi
+
+read_callsign >/dev/null
+
+if [ -z "$EXT_DIR" ] || [ ! -d "$EXT_DIR" ]; then
+    say "No extensions directory on this node."
+    exit 0
+fi
+
+# Only files that are executable are worth offering.
+mapfile -t scripts < <(find "$EXT_DIR" -maxdepth 1 -type f -name '*.sh' -perm -u+x -exec basename {} .sh \; 2>/dev/null | sort)
+
+if [ "${#scripts[@]}" -eq 0 ]; then
+    say "No scripts available."
+    exit 0
+fi
+
+say "Available programs:"
+for s in "${scripts[@]}"; do say "  $s"; done
+blank
+
+answer="$(ask 'Which program? --> ' 60)" || exit 0
+[ -n "$answer" ] || { say "Nothing selected."; exit 0; }
+
+# Reduce to a bare name, then require an exact match against what we listed.
+answer="$(basename "$answer" .sh)"
+for s in "${scripts[@]}"; do
+    if [ "$s" = "$answer" ]; then
+        blank
+        say "Running ${s}..."
+        blank
+        # The extension owns stdout from here. stdin stays connected so it can
+        # prompt too. RuntimeMaxSec on the unit bounds how long it may run.
+        exec "${EXT_DIR}/${s}.sh"
+    fi
+done
+
+say "'${answer}' is not on the list."
+exit 0

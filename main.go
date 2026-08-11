@@ -62,11 +62,13 @@ var (
 	nodePassword string
 
 	// Stats collection configuration
-	statsEnabled  bool
-	statsPort     int
-	statsCallsign string
-	statsPassword string
-	statsInterval int
+	statsEnabled    bool
+	statsPort       int
+	statsCallsign   string
+	statsPassword   string
+	statsInterval   int
+	statsNoCQ       bool
+	statsNoBulletin bool
 
 	// Debug logging
 	debugMode bool
@@ -361,6 +363,19 @@ func handleConnection(ctx context.Context, conn net.Conn) error {
 						// Update Prometheus metrics
 						UpdateTARPNStatMetrics(matches[4], stat)
 						IncrementTARPNStatMessages(matches[4])
+
+						// Persist it. Unlike the [LS1] broadcast below, this
+						// format is what every TARPN node emits, including
+						// stock ones, so it is the only bilateral link data
+						// available for neighbours not running this software.
+						// matches[2] is the monitor's R/T direction flag.
+						if neighborStorageRef != nil {
+							if rxPort, convErr := strconv.Atoi(matches[4]); convErr == nil {
+								if err := neighborStorageRef.SaveTARPNStat(matches[2], rxPort, stat); err != nil {
+									tarpnStatLog.Warnw("Failed to save TARPNstat", "error", err)
+								}
+							}
+						}
 					} else if strings.Contains(matches[5], "[TARPNstat") {
 						tarpnStatLog.Debugw("Failed to parse TARPNstat", "error", err, "raw", matches[5])
 					}
@@ -449,6 +464,8 @@ func main() {
 	flag.StringVar(&statsCallsign, "stats-call", "", "callsign for stats connection (defaults to -call value)")
 	flag.StringVar(&statsPassword, "stats-password", "", "password for stats connection (defaults to -password value)")
 	flag.IntVar(&statsInterval, "stats-interval", 60, "stats polling interval in seconds")
+	flag.BoolVar(&statsNoCQ, "stats-no-cq", false, "collect stats but do not broadcast [LS1] link stats via CQ")
+	flag.BoolVar(&statsNoBulletin, "stats-no-bulletin", false, "collect stats but do not post the daily BBS bulletin")
 
 	// Debug flag
 	flag.BoolVar(&debugMode, "debug", false, "enable verbose debug logging")
@@ -575,11 +592,13 @@ func main() {
 		interval := time.Duration(statsInterval) * time.Second
 
 		collector := NewLinkStatsCollector(LinkStatsCollectorConfig{
-			Hostname:     hostname,
-			Port:         statsPort,
-			Callsign:     statsCall,
-			Password:     statsPwd,
-			PollInterval: interval,
+			Hostname:        hostname,
+			Port:            statsPort,
+			Callsign:        statsCall,
+			Password:        statsPwd,
+			PollInterval:    interval,
+			DisableCQ:       statsNoCQ,
+			DisableBulletin: statsNoBulletin,
 		}, storage)
 
 		collector.SetBroadcastFunc(BroadcastLinkStats)

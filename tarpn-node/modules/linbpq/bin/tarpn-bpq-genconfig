@@ -1,0 +1,411 @@
+#!/bin/bash
+# tarpn-bpq-genconfig - render /etc/tarpn/node.conf into bpq32.cfg.
+#
+# Replaces make_local_bpq.sh. Differences that matter:
+#   - reads a documented KEY=value file instead of a positional node.ini
+#   - validates before writing, and writes atomically
+#   - never reboots the Pi, never downloads anything, never touches /tmp
+#   - refuses to emit a config containing unresolved template tokens
+#
+# Usage:
+#   tarpn-bpq-genconfig                 write $BPQ_HOME/bpq32.cfg
+#   tarpn-bpq-genconfig --check         validate and report, write nothing
+#   tarpn-bpq-genconfig --stdout        render to stdout
+#   tarpn-bpq-genconfig --output PATH   write somewhere else
+#
+# Run as an ExecStartPre of tarpn-linbpq.service, and by `tarpnctl apply`.
+
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve the library relative to this script (modules/<name>/bin/..) so the
+# generator keeps working under a non-default --prefix.
+LIB="${TARPN_LIB:-${SELF_DIR}/../../../lib/tarpn-common.sh}"
+[ -f "$LIB" ] || LIB=/opt/tarpn/lib/tarpn-common.sh
+[ -f "$LIB" ] || { echo "tarpn-bpq-genconfig: cannot find tarpn-common.sh" >&2; exit 1; }
+# shellcheck source=../../../lib/tarpn-common.sh
+. "$LIB"
+TEMPLATE="${TARPN_BPQ_TEMPLATE:-${SELF_DIR}/../templates/boilerplate.cfg}"
+
+MODE=write
+OUTPUT=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check)  MODE=check;  shift ;;
+        --stdout) MODE=stdout; shift ;;
+        --output) OUTPUT="$2"; shift 2 ;;
+        --template) TEMPLATE="$2"; shift 2 ;;
+        --config) TARPN_NODE_CONF="$2"; shift 2 ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+        *) die "unknown option: $1" ;;
+    esac
+done
+
+[ -f "$TEMPLATE" ] || die "template not found: $TEMPLATE"
+[ -f "$TARPN_NODE_CONF" ] || die "node config not found: $TARPN_NODE_CONF (run 'tarpnctl config' first)"
+
+NC="$TARPN_NODE_CONF"
+nc() { conf_get "$NC" "$1" "${2-}"; }
+
+# ---------------------------------------------------------------------------
+# Token table (parallel arrays so this works on bash 3.2 as well as 5.x)
+# ---------------------------------------------------------------------------
+
+_tok_names=()
+_tok_vals=()
+tok() { _tok_names+=("$1"); _tok_vals+=("${2-}"); }
+
+ERRORS=0
+err() { log_err "node.conf: $*"; ERRORS=$((ERRORS + 1)); }
+
+# ---------------------------------------------------------------------------
+# Identity
+# ---------------------------------------------------------------------------
+
+NODE_CALL="$(nc NODE_CALL)"
+NODE_NAME="$(nc NODE_NAME)"
+OP_CALL="$(nc OP_CALL)"
+
+[ -n "$NODE_CALL" ] || err "NODE_CALL is required"
+[ -n "$NODE_NAME" ] || err "NODE_NAME is required"
+[ -n "$OP_CALL" ]   || err "OP_CALL is required"
+
+if [ -n "$NODE_CALL" ] && ! is_valid_call "$NODE_CALL"; then
+    err "NODE_CALL '${NODE_CALL}' is not a valid callsign (expected e.g. N0CALL-2)"
+fi
+if [ -n "$OP_CALL" ] && ! is_valid_call "$OP_CALL"; then
+    err "OP_CALL '${OP_CALL}' is not a valid callsign"
+fi
+if [ -n "$NODE_NAME" ] && [ "${#NODE_NAME}" -gt 6 ]; then
+    err "NODE_NAME '${NODE_NAME}' is longer than the 6 character NODEALIAS limit"
+fi
+
+tok nodecall "$(call_lower "$NODE_CALL")"
+tok NODECALL "$(call_upper "$NODE_CALL")"
+tok nodename "$(call_lower "$NODE_NAME")"
+tok NODENAME "$(call_upper "$NODE_NAME")"
+tok local-op-callsign "$(call_lower "$OP_CALL")"
+
+SYSOP_PASSWORD="$(nc SYSOP_PASSWORD)"
+[ -n "$SYSOP_PASSWORD" ] || err "SYSOP_PASSWORD is required"
+if [ "$SYSOP_PASSWORD" = changeme ]; then
+    log_warn "SYSOP_PASSWORD is still the default 'changeme'"
+fi
+tok sysop-password "$SYSOP_PASSWORD"
+
+tok latlon "$(nc LATLON)"
+tok ctext  "$(nc CTEXT "Welcome to the $(call_upper "$NODE_NAME") node")"
+
+for i in 1 2 3 4 5 6 7 8; do
+    tok "infomessage${i}" "$(nc "INFO${i}")"
+done
+
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
+
+BBS_CALL="$(nc BBS_CALL)"
+if [ -n "$BBS_CALL" ]; then
+    is_valid_call "$BBS_CALL" || err "BBS_CALL '${BBS_CALL}' is not a valid callsign"
+    tok bbs-enable ""
+    tok bbs-support 1
+    tok bbscall "$(call_lower "$BBS_CALL")"
+else
+    tok bbs-enable ";"
+    tok bbs-support 0
+    tok bbscall "nobbs"
+fi
+
+# LinBPQ's APPLICATION line for CHAT has no enable switch in the template, so
+# a chat callsign always has to be present and valid. Default to the TARPN
+# convention of <base>-9.
+CHAT_CALL="$(nc CHAT_CALL)"
+if [ -z "$CHAT_CALL" ]; then
+    CHAT_CALL="$(call_base "$NODE_CALL")-9"
+fi
+if [ -n "$CHAT_CALL" ] && ! is_valid_call "$CHAT_CALL"; then
+    err "CHAT_CALL '${CHAT_CALL}' is not a valid callsign"
+fi
+tok chatcall "$(call_lower "$CHAT_CALL")"
+
+tok chatnode "$(chat_alias "$CHAT_CALL")"
+
+# Chat can be served either by LinBPQ's built-in LINCHAT or by the tarpn-chat
+# module, which attaches over NetROM as its own node. Running both would put
+# two chat systems on the same callsign, so they are mutually exclusive.
+CHAT_PROVIDER="$(nc CHAT_PROVIDER linbpq)"
+case "$CHAT_PROVIDER" in
+    linbpq)
+        tok chat-linbpq ""
+        tok netromport ";"
+        tok netromport-num 63119
+        ;;
+    tarpn-chat)
+        # Built-in chat off; NetROM host port on so tarpn-chat can attach.
+        tok chat-linbpq ";"
+        tok netromport ""
+        netrom_port="$(nc NETROM_PORT 63119)"
+        if ! printf '%s' "$netrom_port" | grep -qE '^[1-9][0-9]{3,4}$'; then
+            err "NETROM_PORT '${netrom_port}' is not a valid TCP port"
+        fi
+        tok netromport-num "$netrom_port"
+        ;;
+    *)
+        err "CHAT_PROVIDER '${CHAT_PROVIDER}' must be 'linbpq' or 'tarpn-chat'"
+        tok chat-linbpq ";"
+        tok netromport ";"
+        tok netromport-num 63119
+        ;;
+esac
+
+# Node helper commands (TRR, LINUX, TCHAT, TINFO, LINKTEST). Each is an
+# APPLICATION that tells LinBPQ to connect out to a CMDPORT socket, where the
+# node-commands module is listening. Advertise only the ones actually being
+# served: an APPLICATION whose socket has nothing behind it shows up in the
+# node menu and then fails when a user picks it.
+#
+# The HOST index in each APPLICATION line is a position in the fixed CMDPORT
+# list, so disabling one command does not shift the others.
+NODE_COMMANDS="$(nc NODE_COMMANDS "")"
+for cmd in trr linux tchat tinfo linktest; do
+    case " $(printf '%s' "$NODE_COMMANDS" | tr ',' ' ') " in
+        *" $cmd "*) tok "cmd-${cmd}" "" ;;
+        *)          tok "cmd-${cmd}" ";" ;;
+    esac
+done
+for cmd in $(printf '%s' "$NODE_COMMANDS" | tr ',' ' '); do
+    case "$cmd" in
+        trr|linux|tchat|tinfo|linktest) ;;
+        *) err "NODE_COMMANDS contains unknown command '${cmd}' (valid: trr, linux, tchat, tinfo, linktest)" ;;
+    esac
+done
+
+# The stock template also wires up TARPN Home (APPLICATION 4/5/6 plus TNCPORTs
+# bound to /home/pi/minicom/com*) and the node helper commands TRR, LINUX,
+# TCHAT, TINFO and LINKTEST, which are served over CMDPORT by the legacy inetd
+# scripts. This installation ships none of those, so referencing them would
+# leave LinBPQ pointing at devices and sockets that do not exist. Off unless
+# the operator has deliberately kept the legacy pieces around.
+case "$(nc LEGACY_TARPN_APPS false)" in
+    true|yes|on|1)
+        tok legacy-apps ""
+        log_warn "LEGACY_TARPN_APPS is enabled; this config references /home/pi/minicom/com* and CMDPORT helpers that this installation does not create"
+        ;;
+    *)
+        tok legacy-apps ";"
+        ;;
+esac
+
+# HOST mode gives the operator a terminal into their own node from the node's
+# own console, over a pseudo-terminal LinBPQ creates rather than over the
+# network. The hostmode module turns this on and provides the terminal.
+#
+# The console device lives in BPQ_HOME rather than the legacy
+# /home/pi/minicom/com8, so it is inside the directory the engine already has
+# write access to and nothing has to be carved out for it.
+host_comport="$(nc HOST_COMPORT "")"
+if [ -z "$host_comport" ]; then
+    host_comport="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)/console"
+fi
+tok host-comport "$host_comport"
+
+case "$(nc HOST_MODE disabled)" in
+    enabled|true|yes|on)
+        tok host-enable ""
+        tok host-mode-echo HOST-MODE-ENABLED
+        ;;
+    *)
+        tok host-enable ";"
+        tok host-mode-echo NO-HOST-MODE
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# NinoTNC slots A..J -> ports 1..10 -> /dev/ttyACM0..9
+# ---------------------------------------------------------------------------
+
+LETTERS="A B C D E F G H I J"
+idx=0
+gap_after=""
+enabled_count=0
+
+for L in $LETTERS; do
+    idx=$((idx + 1))
+    nn="$(printf '%02d' "$idx")"
+    neighbor="$(nc "PORT_${L}_NEIGHBOR")"
+    frack="$(nc "PORT_${L}_FRACK" 9000)"
+
+    if [ -n "$neighbor" ]; then
+        if [ -n "$gap_after" ]; then
+            err "slot ${L} is configured but slot ${gap_after} is empty; NinoTNC slots must be filled from A upwards with no gaps"
+        fi
+        is_valid_call "$neighbor" || err "PORT_${L}_NEIGHBOR '${neighbor}' is not a valid callsign"
+        case "$neighbor" in
+            *-*) : ;;
+            *) err "PORT_${L}_NEIGHBOR '${neighbor}' needs an SSID (e.g. ${neighbor}-2)" ;;
+        esac
+        if ! printf '%s' "$frack" | grep -qE '^[1-9][0-9]*$'; then
+            err "PORT_${L}_FRACK '${frack}' must be a positive number of milliseconds"
+        fi
+        enabled_count=$((enabled_count + 1))
+        tok "ninotnc_port${nn}" ""
+        tok "portdev${nn}" "ttyACM$((idx - 1))"
+        tok "neighbor${L}" "$(call_upper "$neighbor")"
+        tok "frack${L}" "$frack"
+        tok "chat_c${L}" "port ${idx} (${nn}): ${neighbor}, FRACK ${frack}"
+    else
+        [ -n "$gap_after" ] || gap_after="$L"
+        tok "ninotnc_port${nn}" ";disabled;"
+        tok "portdev${nn}" "UNUSED${nn}"
+        tok "neighbor${L}" "NOT_SET"
+        tok "frack${L}" 9000
+        tok "chat_c${L}" "port ${idx} (${nn}): unused"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# Manual serial ports 11 and 12
+# ---------------------------------------------------------------------------
+
+for N in 11 12; do
+    enabled="$(nc "PORT_${N}_ENABLED" false)"
+    dev="$(nc "PORT_${N}_DEV")"
+    neighbor="$(nc "PORT_${N}_NEIGHBOR")"
+    speed="$(nc "PORT_${N}_SPEED" 57600)"
+    txdelay="$(nc "PORT_${N}_TXDELAY" 200)"
+    frack="$(nc "PORT_${N}_FRACK" 9000)"
+    kissparams="$(nc "PORT_${N}_KISS_PARAMS" true)"
+
+    case "$enabled" in
+        true|yes|on|1|ENABLE|enabled)
+            [ -n "$dev" ] || err "PORT_${N}_ENABLED is set but PORT_${N}_DEV is empty"
+            case "$dev" in
+                */ttyACM*) err "PORT_${N}_DEV '${dev}' points at a ttyACM device, which is reserved for the NinoTNC slots A..J" ;;
+            esac
+            [ -n "$neighbor" ] || err "PORT_${N}_ENABLED is set but PORT_${N}_NEIGHBOR is empty"
+            if [ -n "$neighbor" ] && ! is_valid_call "$neighbor"; then
+                err "PORT_${N}_NEIGHBOR '${neighbor}' is not a valid callsign"
+            fi
+            enabled_count=$((enabled_count + 1))
+            tok "usb-port${N}" ""
+            tok "portdev${N}" "$dev"
+            tok "neighbor${N}" "$(call_upper "$neighbor")"
+            tok "speed${N}" "$speed"
+            tok "txdelay${N}" "$txdelay"
+            tok "frack${N}" "$frack"
+            tok "chat_c${N}" "port ${N}: ${neighbor} on ${dev}"
+            case "$kissparams" in
+                false|no|off|0) tok "kissoptions${N}" "KISSOPTIONS=NOPARAMS" ;;
+                *)              tok "kissoptions${N}" ";KISSOPTIONS default - KISS parameters are sent" ;;
+            esac
+            ;;
+        *)
+            tok "usb-port${N}" ";"
+            tok "portdev${N}" "/dev/null"
+            tok "neighbor${N}" "NOT_SET"
+            tok "speed${N}" "$speed"
+            tok "txdelay${N}" "$txdelay"
+            tok "frack${N}" "$frack"
+            tok "kissoptions${N}" ";KISSOPTIONS - port disabled"
+            tok "chat_c${N}" "port ${N}: unused"
+            ;;
+    esac
+done
+
+tok manual_chat_config "generated by tarpn-bpq-genconfig from ${NC}"
+
+if [ "$enabled_count" -eq 0 ]; then
+    log_warn "no radio ports are configured; the node will start but will have no RF links"
+fi
+
+if [ "$ERRORS" -gt 0 ]; then
+    die "${ERRORS} configuration error(s); bpq32.cfg not written"
+fi
+
+# ---------------------------------------------------------------------------
+# Render
+# ---------------------------------------------------------------------------
+
+# Substitution happens in a single awk pass driven by a name=value map.
+#
+# Doing this with bash ${var//pat/rep} takes minutes on a 900-line template
+# (and is quadratic), and doing it with sed would mean escaping every value
+# against the delimiter, & and backslashes. awk with index()/substr() treats
+# both the token and the replacement as literal text, so callsigns, INFO lines
+# and CTEXT strings pass through untouched whatever they contain.
+
+mapfile_="$(mktemp "${TMPDIR:-/tmp}/tarpn-tokens.XXXXXX")"
+rendered="$(mktemp "${TMPDIR:-/tmp}/tarpn-bpq32.XXXXXX")"
+trap 'rm -f "$mapfile_" "$rendered"' EXIT
+
+i=0
+while [ "$i" -lt "${#_tok_names[@]}" ]; do
+    # Values must be single-line; fold any embedded newline into a space.
+    printf '%s=%s\n' "${_tok_names[$i]}" "$(printf '%s' "${_tok_vals[$i]}" | tr '\n' ' ')" >> "$mapfile_"
+    i=$((i + 1))
+done
+
+awk '
+    NR == FNR {
+        p = index($0, "=")
+        if (p > 0) map[substr($0, 1, p - 1)] = substr($0, p + 1)
+        next
+    }
+    {
+        line = $0; out = ""
+        while ((p = index(line, "q~")) > 0) {
+            pre  = substr(line, 1, p - 1)
+            rest = substr(line, p + 2)
+            e = index(rest, "~q")
+            if (e == 0) { out = out pre "q~"; line = rest; continue }
+            name = substr(rest, 1, e - 1)
+            line = substr(rest, e + 2)
+            if (name in map) out = out pre map[name]
+            else             out = out pre "q~" name "~q"
+        }
+        print out line
+    }
+' "$mapfile_" "$TEMPLATE" > "$rendered"
+
+# A leftover token means the template gained a placeholder this generator does
+# not know about. Emitting it would hand LinBPQ a config with literal garbage
+# in it, so refuse rather than write something subtly broken.
+if grep -q 'q~' "$rendered"; then
+    log_err "unresolved template tokens remain:"
+    grep -oE 'q~[A-Za-z0-9_-]+~q' "$rendered" | sort -u | sed 's/^/       /' >&2
+    die "refusing to write bpq32.cfg"
+fi
+
+if [ "$MODE" = check ]; then
+    log_info "node.conf is valid; ${enabled_count} radio port(s) configured"
+    exit 0
+fi
+
+if [ "$MODE" = stdout ]; then
+    cat "$rendered"
+    exit 0
+fi
+
+if [ -z "$OUTPUT" ]; then
+    bpq_home="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+    OUTPUT="${bpq_home}/bpq32.cfg"
+fi
+
+outdir="$(dirname "$OUTPUT")"
+[ -d "$outdir" ] || die "output directory does not exist: $outdir"
+
+if [ -f "$OUTPUT" ] && cmp -s "$rendered" "$OUTPUT"; then
+    log_info "bpq32.cfg is already up to date"
+    exit 0
+fi
+
+# Atomic replace via a temp file in the destination directory, so a crash
+# mid-write cannot leave LinBPQ a truncated config.
+tmp="$(mktemp "${OUTPUT}.XXXXXX")"
+trap 'rm -f "$mapfile_" "$rendered" "$tmp"' EXIT
+cat "$rendered" > "$tmp"
+chmod 0644 "$tmp"
+mv "$tmp" "$OUTPUT"
+log_info "wrote ${OUTPUT} (${enabled_count} radio port(s))"

@@ -1,0 +1,112 @@
+#!/bin/bash
+# TINFO - node diagnostics for someone connected over RF.
+#
+# Reimplementation of the legacy tinfo.sh. Same purpose: let a remote operator
+# work out what state this node is in without shell access. The output is
+# rewritten for this installation's layout, because the original reported on
+# things that no longer exist here (background.ini, BACKGROUND:ON, the
+# TARPN Home install date, tarpn_start1dl flag files, source_url.txt).
+#
+# Deliberately omitted: anything an unauthenticated remote station should not
+# see. No passwords, no filesystem paths, no IP or routing details. The legacy
+# version printed `hostname -I` and the default route; that is not information
+# a random connecting station needs.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SELF_DIR}/_cmd-common.sh"
+
+NC="$TARPN_NODE_CONF"
+n() { conf_get "$NC" "$1" "${2-}"; }
+
+unit_state() {
+    if systemctl is-active --quiet "$1" 2>/dev/null; then printf 'running'
+    elif systemctl is-enabled --quiet "$1" 2>/dev/null; then printf 'stopped (enabled)'
+    else printf 'not running'
+    fi
+}
+
+say "TINFO - $(call_upper "$(n NODE_NAME '?')") / $(call_upper "$(n NODE_CALL '?')")"
+say "$(date -R)"
+blank
+
+# --- node -----------------------------------------------------------------
+say "Node"
+say "  operator     $(call_upper "$(n OP_CALL '?')")"
+latlon="$(n LATLON)"
+[ -n "$latlon" ] && say "  location     ${latlon}"
+say "  engine       $(unit_state tarpn-linbpq.service)"
+
+if [ -r /proc/uptime ]; then
+    up="$(awk '{printf "%dd %dh %dm", $1/86400, ($1%86400)/3600, ($1%3600)/60}' /proc/uptime)"
+    say "  host uptime  ${up}"
+fi
+
+# Time since the engine last started says more than host uptime when
+# diagnosing a link that keeps dropping.
+started="$(systemctl show -p ActiveEnterTimestamp --value tarpn-linbpq.service 2>/dev/null || true)"
+[ -n "$started" ] && say "  engine since ${started}"
+blank
+
+# --- ports ----------------------------------------------------------------
+say "Ports"
+idx=0
+any=0
+for L in A B C D E F G H I J; do
+    idx=$((idx + 1))
+    nb="$(n "PORT_${L}_NEIGHBOR")"
+    [ -n "$nb" ] || continue
+    any=1
+    say "  $(printf '%-2s' "$idx")  $(printf '%-9s' "$(call_upper "$nb")")  FRACK $(n "PORT_${L}_FRACK" 9000)"
+done
+for N in 11 12; do
+    case "$(n "PORT_${N}_ENABLED" false)" in
+        true|yes|on|1)
+            any=1
+            say "  $(printf '%-2s' "$N")  $(printf '%-9s' "$(call_upper "$(n "PORT_${N}_NEIGHBOR")")")  FRACK $(n "PORT_${N}_FRACK" 9000)  $(n "PORT_${N}_SPEED" '') baud"
+            ;;
+    esac
+done
+[ "$any" -eq 1 ] || say "  (none configured)"
+blank
+
+# --- services -------------------------------------------------------------
+say "Services"
+for svc in tarpn-mon tarpn-chat; do
+    if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
+        say "  $(printf '%-11s' "$svc")  $(unit_state "${svc}.service")"
+    fi
+done
+if systemctl list-unit-files tarpn-routes.timer >/dev/null 2>&1; then
+    say "  $(printf '%-11s' 'stat bcast')  $(unit_state tarpn-routes.timer)"
+fi
+chat_provider="$(n CHAT_PROVIDER linbpq)"
+say "  chat via     ${chat_provider}"
+bbs="$(n BBS_CALL)"
+[ -n "$bbs" ] && say "  bbs          $(call_upper "$bbs")"
+blank
+
+# --- health ---------------------------------------------------------------
+say "Health"
+if command -v vcgencmd >/dev/null 2>&1; then
+    temp="$(vcgencmd measure_temp 2>/dev/null | cut -d= -f2)"
+    [ -n "$temp" ] && say "  cpu temp     ${temp}"
+    # Undervoltage is the single most common cause of a flaky Pi node.
+    tv="$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"
+    if [ -n "$tv" ] && [ "$tv" != "0x0" ]; then
+        say "  POWER        throttling detected (${tv})"
+    fi
+elif [ -r /sys/class/thermal/thermal_zone0/temp ]; then
+    say "  cpu temp     $(awk '{printf "%.1f'"'"'C", $1/1000}' /sys/class/thermal/thermal_zone0/temp)"
+fi
+
+disk="$(df -h "${TARPN_STATE}" 2>/dev/null | tail -1 | awk '{print $4" free of "$2" ("$5" used)"}')"
+[ -n "$disk" ] && say "  disk         ${disk}"
+
+load="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
+[ -n "$load" ] && say "  load         ${load}"
+blank
+
+say "end of TINFO"
+exit 0

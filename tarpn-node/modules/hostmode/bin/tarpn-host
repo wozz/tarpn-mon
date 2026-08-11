@@ -1,0 +1,66 @@
+#!/bin/bash
+# tarpn-host - open a terminal into this node from the node's own console.
+#
+# The equivalent of the stock `tarpn host`. LinBPQ exposes a TNC2-style
+# pseudo-terminal (the TNCPORT that pairs with APPLICATION 8,HOST) and this
+# attaches a terminal to it, giving a cmd: prompt with no network involved.
+#
+# Uses stock minicom. TARPN's piminicom was the same program with one line
+# added to play a sound file on the bell; that build is 32-bit ARM only, and
+# everything else about it is identical.
+#
+# Ctrl-A X quits minicom. Ctrl-A Z is its help.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARPN_PREFIX="${TARPN_PREFIX:-$(cd "${SELF_DIR}/../../.." && pwd)}"
+. "${TARPN_PREFIX}/lib/tarpn-common.sh"
+
+SCRIPT="${SELF_DIR}/../share/tarpn-host.scr"
+
+# Where LinBPQ was told to put the console device.
+comport="$(conf_get "$TARPN_NODE_CONF" HOST_COMPORT "")"
+if [ -z "$comport" ]; then
+    comport="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)/console"
+fi
+
+case "$(conf_get "$TARPN_NODE_CONF" HOST_MODE disabled)" in
+    enabled|true|yes|on) ;;
+    *)
+        log_err "HOST_MODE is not enabled in ${TARPN_NODE_CONF}"
+        log_dim "sudo tarpnctl install hostmode   sets it and explains the next step"
+        exit 1 ;;
+esac
+
+if ! command -v minicom >/dev/null 2>&1; then
+    log_err "minicom is not installed"
+    log_dim "sudo apt install minicom"
+    exit 1
+fi
+
+if ! unit_is_active tarpn-linbpq.service && ! pgrep -x linbpq >/dev/null 2>&1; then
+    log_err "the node engine is not running; there is nothing to connect to"
+    log_dim "sudo tarpnctl start"
+    exit 1
+fi
+
+# LinBPQ creates this when it starts with HOST mode configured. If it is not
+# there, the running engine predates the config change.
+if [ ! -e "$comport" ]; then
+    log_err "no console device at ${comport}"
+    log_dim "the engine has to be restarted after enabling HOST mode:"
+    log_dim "  sudo tarpnctl apply"
+    exit 1
+fi
+
+if [ ! -r "$comport" ] || [ ! -w "$comport" ]; then
+    log_err "cannot read and write ${comport}"
+    log_dim "it is owned by $(stat -c '%U' "$comport" 2>/dev/null || echo 'the node user'); run this as that user or via sudo"
+    exit 1
+fi
+
+log_dim "connecting to ${comport} - Ctrl-A X to quit"
+
+# -w wraps long lines, -D selects the device, -S runs the session script.
+exec minicom -w -D "$comport" -S "$SCRIPT"

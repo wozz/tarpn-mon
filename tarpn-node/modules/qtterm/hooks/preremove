@@ -1,0 +1,11 @@
+#!/bin/bash
+# qtterm/preremove - take the launcher and menu entry back out.
+#
+# The binary itself goes with the module directory. Anything QtTermTCP wrote
+# into the user's own settings is left alone, so reinstalling keeps whatever
+# they had configured.
+set -euo pipefail
+
+run rm -f "${TARPN_BINDIR}/qttermtcp"
+run rm -f "${TARPN_DESKTOP_DIR}/qttermtcp.desktop"
+log_dim "removed the qttermtcp launcher and menu entry"

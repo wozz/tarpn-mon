@@ -1,0 +1,24 @@
+# minicom runscript, run at session start against the node console.
+#
+# These are node commands sent to LinBPQ, not minicom commands. Same set the
+# stock TARPN minicom.scr used:
+#
+#   autolf on   translate CR to CRLF, so output is not stair-stepped
+#   cbell on    ring the terminal bell when a station connects
+#   echo on     echo typed characters back
+#   conok on    report connects and disconnects
+#   mon off     do not dump the monitor stream into this session
+#   mall off    ditto for all ports
+#
+# cbell rings the terminal bell. TARPN's patched minicom turned that into an
+# audible chime through the Pi's speaker; stock minicom leaves it to the
+# terminal, which may or may not make a sound depending on how it is set up.
+send "^C"
+send "D"
+send ""
+send "autolf on"
+send "cbell on"
+send "echo on"
+send "conok on"
+send "mon off"
+send "mall off"

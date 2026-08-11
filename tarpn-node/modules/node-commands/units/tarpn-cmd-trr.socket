@@ -1,0 +1,13 @@
+[Unit]
+Description=TARPN node command: TRR link quality
+Documentation=https://github.com/wozz/tarpn-mon
+PartOf=tarpn.target
+
+[Socket]
+# LinBPQ connects here when a user runs this command at the node prompt.
+# Loopback only: this is reachable through the node, never from the network.
+ListenStream=127.0.0.1:63000
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

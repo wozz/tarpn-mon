@@ -1,0 +1,45 @@
+#!/bin/bash
+# core/postinstall - create the directory layout and seed tarpn.conf.
+#
+# Runs with tarpn-common.sh already sourced and TARPN_* set.
+set -euo pipefail
+
+user="$(resolve_tarpn_user)"
+
+# Newer Raspberry Pi OS images no longer create a `pi` account, so a
+# tarpn.conf carried over from another node can easily name a user that does
+# not exist here. Say so plainly rather than letting install(1) fail with
+# "Invalid argument".
+if ! id "$user" >/dev/null 2>&1; then
+    log_err "TARPN_USER is set to '${user}', which does not exist on this system"
+    log_dim "either create it:      sudo useradd -m -G dialout ${user}"
+    log_dim "or point at another:   sudo sed -i 's/^TARPN_USER=.*/TARPN_USER=youruser/' ${TARPN_CONF}"
+    die "cannot continue without a valid TARPN_USER"
+fi
+
+group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+
+log_step "Creating layout for user ${user}"
+
+for d in "$TARPN_ETC" "$TARPN_STATE" "$TARPN_MODULE_STATE"; do
+    run install -d -m 0755 "$d"
+done
+
+# Seed tarpn.conf on first install only; never clobber operator edits.
+if [ ! -f "$TARPN_CONF" ]; then
+    run install -m 0644 "$(module_dir core)/config/tarpn.conf" "$TARPN_CONF"
+    conf_set "$TARPN_CONF" TARPN_USER "$user"
+    log_info "Wrote ${TARPN_CONF}"
+else
+    log_dim "${TARPN_CONF} exists, leaving it alone"
+fi
+
+# BPQ working directory. Owned by the node user because LinBPQ writes
+# BPQNODES.dat, log files and the BBS spool here at runtime.
+bpq_home="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+run install -d -m 0755 -o "$user" -g "$group" "$bpq_home"
+
+if ! id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx dialout; then
+    log_warn "user ${user} is not in the 'dialout' group; USB TNCs will not be readable"
+    log_dim "fix with: sudo usermod -aG dialout ${user}"
+fi

@@ -1,0 +1,30 @@
+[Unit]
+Description=TARPN node command TINFO diagnostics (connection %i)
+
+[Service]
+Type=simple
+User=@TARPN_USER@
+Group=@TARPN_GROUP@
+WorkingDirectory=@TARPN_STATE@
+
+# stdin/stdout are the accepted socket, which is what the handler reads the
+# user's input from and writes its output to.
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+ExecStart=@TARPN_PREFIX@/modules/node-commands/bin/tarpn-cmd-tinfo
+
+# A user who disconnects mid-command must not leave a handler running
+# forever holding the node session.
+TimeoutStartSec=120
+RuntimeMaxSec=120
+
+# The legacy inetd entries ran these as root. They do not need it.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=@TARPN_STATE@
+
+SyslogIdentifier=tarpn-cmd-tinfo

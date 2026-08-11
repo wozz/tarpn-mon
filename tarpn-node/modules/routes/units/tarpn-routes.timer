@@ -1,0 +1,16 @@
+[Unit]
+Description=Broadcast TARPNstat link quality every 15 minutes
+Documentation=https://github.com/wozz/tarpn-mon
+
+[Timer]
+# Give the node engine time to come up and links time to establish before the
+# first broadcast.
+OnBootSec=5min
+OnUnitActiveSec=15min
+# Nodes across the network boot at similar times after a power event; spread
+# the broadcasts out so they do not all key up together.
+RandomizedDelaySec=60
+Persistent=false
+
+[Install]
+WantedBy=timers.target

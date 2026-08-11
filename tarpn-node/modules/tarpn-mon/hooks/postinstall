@@ -1,0 +1,72 @@
+#!/bin/bash
+# tarpn-mon/postinstall - install the binary, state directory and settings.
+set -euo pipefail
+
+user="$(resolve_tarpn_user)"
+group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+mod="$(module_dir tarpn-mon)"
+state="${TARPN_STATE}/mon"
+
+run install -d -m 0755 "${mod}/bin"
+install_release_binary tarpn-mon "${mod}/bin/tarpn-mon"
+
+# linkstats.db, chat.db and tarpn-mon.json are written here.
+run install -d -m 0755 -o "$user" -g "$group" "$state"
+
+# Optional env overrides, seeded once.
+if [ ! -f "${TARPN_ETC}/tarpn-mon.env" ]; then
+    run install -m 0644 "${mod}/config/tarpn-mon.env.example" "${TARPN_ETC}/tarpn-mon.env"
+    log_info "Wrote ${TARPN_ETC}/tarpn-mon.env"
+fi
+
+# Seed the feature settings once. After this the web UI owns the file, so an
+# update must never rewrite it: doing so would silently revert whatever the
+# operator turned on or off.
+settings="${state}/tarpn-mon.json"
+if [ -f "$settings" ]; then
+    log_dim "$(basename "$settings") exists, leaving it to the web UI"
+elif [ "$TARPN_DRY_RUN" = true ]; then
+    log_dim "would seed ${settings}"
+else
+    # Chat is served by tarpn-chat over its local WebSocket API on 8513.
+    # Enable it only if that module is actually installed, otherwise the
+    # backend would retry a connection to nothing.
+    chat_enabled=false
+    if module_is_installed tarpn-chat; then
+        chat_enabled=true
+        log_dim "tarpn-chat is installed; enabling the chat feature"
+    fi
+
+    # Callsigns are left empty on purpose: tarpn-mon fills them in from the
+    # main -call value when they are blank.
+    cat > "$settings" <<EOF
+{
+  "features": {
+    "chat": { "enabled": ${chat_enabled}, "host": "localhost", "port": 8513 },
+    "bbs":  { "enabled": false, "host": "localhost", "port": 8010 },
+    "node": { "enabled": false, "host": "localhost", "port": 8010 }
+  }
+}
+EOF
+    chown "$user:$group" "$settings"
+    log_info "Seeded ${settings}"
+    log_dim "chat, BBS and node console can be toggled in the web UI"
+fi
+
+if [ "$TARPN_DRY_RUN" != true ]; then
+    chown -R "$user:$group" "$state" 2>/dev/null || true
+fi
+
+# TARPN Home and tarpn-mon both want to be the node's web interface.
+if systemctl list-unit-files home.service >/dev/null 2>&1; then
+    if systemctl is-enabled --quiet home.service 2>/dev/null; then
+        log_warn "the legacy TARPN Home service is still enabled"
+        log_dim "tarpn-mon replaces it; disable it with:"
+        log_dim "  sudo systemctl disable --now home.service"
+    fi
+fi
+
+# hostname -I is Linux-only and exits non-zero elsewhere; do not let a
+# cosmetic lookup decide whether the install succeeded.
+ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+log_info "Web interface will be at http://${ip:-<this-host>}:8212"

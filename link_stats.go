@@ -17,6 +17,20 @@ type LinkStatsCollectorConfig struct {
 	Callsign     string
 	Password     string
 	PollInterval time.Duration
+
+	// Polling the S command is local-only, but the collector also has two
+	// behaviours that put traffic on the air. Both default to on, and both
+	// can be turned off independently, so that enabling stats collection on
+	// a node does not oblige it to start transmitting.
+	//
+	// DisableCQ suppresses the [LS1] link-stats CQ broadcast, sent on every
+	// RF port every 10 minutes.
+	DisableCQ bool
+	// DisableBulletin suppresses the daily "SB STATS @" BBS bulletin. Whether
+	// that goes any further than the local BBS is up to that BBS's forwarding
+	// rules; TARPN setups generally forward only specific @<tag>
+	// designators, so a bare @ stays local.
+	DisableBulletin bool
 }
 
 // LinkStatsCollector manages a telnet connection to LinBPQ for periodic S command polling
@@ -152,11 +166,15 @@ func (c *LinkStatsCollector) connectAndPoll(ctx context.Context) error {
 				return fmt.Errorf("poll failed: %w", err)
 			}
 		case <-cqTicker.C:
-			c.sendCQBroadcasts()
+			if !c.config.DisableCQ {
+				c.sendCQBroadcasts()
+			}
 		case <-bulletinTicker.C:
 			today := time.Now().YearDay()
 			if today != lastBulletinDay {
-				c.sendDailyBulletin()
+				if !c.config.DisableBulletin {
+					c.sendDailyBulletin()
+				}
 				lastBulletinDay = today
 			}
 		}
@@ -624,6 +642,12 @@ func (c *LinkStatsCollector) runCompaction(ctx context.Context) {
 			// Purge raw data older than 30 days
 			if err := c.storage.PurgeOldRaw(30 * 24 * time.Hour); err != nil {
 				statsLog.Errorw("Raw data purge failed", "error", err)
+			}
+			// TARPNstat broadcasts are recorded whenever the monitor is
+			// connected, independently of this collector, so they need
+			// bounding too. Only the recent window is of any use.
+			if err := c.storage.PurgeOldTARPNStat(30 * 24 * time.Hour); err != nil {
+				statsLog.Errorw("TARPNstat purge failed", "error", err)
 			}
 		}
 	}

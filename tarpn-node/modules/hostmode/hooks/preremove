@@ -1,0 +1,18 @@
+#!/bin/bash
+# hostmode/preremove - turn HOST mode back off.
+#
+# Leaving HOST_MODE=enabled would keep a console port in bpq32.cfg that
+# nothing can attach to once the terminal is gone.
+set -euo pipefail
+
+run rm -f "${TARPN_BINDIR}/tarpn-host"
+
+if [ -f "$TARPN_NODE_CONF" ]; then
+    case "$(conf_get "$TARPN_NODE_CONF" HOST_MODE disabled)" in
+        enabled|true|yes|on)
+            conf_set "$TARPN_NODE_CONF" HOST_MODE disabled
+            log_info "Set HOST_MODE=disabled in ${TARPN_NODE_CONF}"
+            log_warn "run 'sudo tarpnctl apply' to remove the console port"
+            ;;
+    esac
+fi

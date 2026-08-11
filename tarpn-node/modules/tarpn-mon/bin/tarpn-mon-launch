@@ -1,0 +1,104 @@
+#!/bin/bash
+# tarpn-mon-launch - build tarpn-mon's arguments from node.conf and exec it.
+#
+# This exists so the node callsign has exactly one home. Baking it into an
+# EnvironmentFile at install time would go stale the moment someone edits
+# node.conf and runs `tarpnctl apply`.
+#
+# It execs; there is no supervision loop here. systemd restarts the service.
+#
+# What is deliberately NOT passed as a flag: the chat, bbs and node feature
+# toggles. Those live in tarpn-mon.json, which the web UI writes at runtime.
+# tarpn-mon only lets an explicitly-passed flag override the file, so passing
+# them every start would undo whatever the operator changed in the UI. The
+# module seeds that file once at install instead.
+
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB="${TARPN_LIB:-${SELF_DIR}/../../../lib/tarpn-common.sh}"
+[ -f "$LIB" ] || LIB=/opt/tarpn/lib/tarpn-common.sh
+. "$LIB"
+
+BINARY="${SELF_DIR}/tarpn-mon"
+[ -x "$BINARY" ] || die "tarpn-mon binary not found at ${BINARY}"
+
+# The generated bpq32.cfg defines the telnet user as
+#   USER=<op-call>,p,<OP-CALL>,,SYSOP
+# so the monitor logs in as the operator callsign with password "p". Using the
+# node callsign here would not match any USER line and the login would fail.
+#
+# Falling back to the legacy node.ini matters: this module is usable on its own
+# against an otherwise stock TARPN node, where the linbpq module is not
+# installed and so there is no node.conf.
+call="${TARPN_MON_CALL:-}"
+if [ -z "$call" ]; then
+    call="$(conf_get "$TARPN_NODE_CONF" OP_CALL "")"
+fi
+if [ -z "$call" ] && [ -f /home/pi/node.ini ]; then
+    call="$(grep -a '^local-op-callsign:' /home/pi/node.ini 2>/dev/null | head -1 | cut -d: -f2 | tr -d ' \r')"
+    [ -n "$call" ] && log_dim "using operator callsign ${call} from the legacy node.ini"
+fi
+[ -n "$call" ] || die "no operator callsign: set TARPN_MON_CALL in ${TARPN_ETC}/tarpn-mon.env"
+
+# Lower-case it, because the login name has to match the USER line in
+# bpq32.cfg exactly and that line is lower-case by convention: our generator
+# writes it with call_lower, and the legacy configure_node_ini.sh did the same
+# ("${local_op_callsign,,}"). node.conf stores OP_CALL upper-case for
+# readability, so without this an upper-case OP_CALL produces a login name
+# that matches no USER line and every telnet feature - chat, BBS, node
+# console - fails to connect while the config looks perfectly correct.
+#
+# G8BPQ's own tools sidestep this by reading the callsign back out of the
+# LOGINPROMPT rather than being told it; we normalise instead.
+#
+# An explicitly set TARPN_MON_CALL is passed through untouched, for a
+# hand-written bpq32.cfg whose USER line is not lower-case.
+if [ -z "${TARPN_MON_CALL:-}" ]; then
+    call="$(call_lower "$call")"
+fi
+
+password="${TARPN_MON_PASSWORD:-p}"
+host="${TARPN_MON_HOST:-localhost}"
+monitor_port="${TARPN_MON_MONITOR_PORT:-8011}"
+settings="${TARPN_MON_CONFIG:-$(pwd)/tarpn-mon.json}"
+
+args=(
+    -call "$call"
+    -password "$password"
+    -host "$host"
+    -target-port "$monitor_port"
+    -config "$settings"
+)
+
+# L2 link statistics polling. This one is a flag rather than a stored setting
+# in tarpn-mon, so it has to be passed here.
+case "${TARPN_MON_STATS:-true}" in
+    true|yes|on|1)
+        args+=(-stats)
+        [ -n "${TARPN_MON_STATS_INTERVAL:-}" ] && args+=(-stats-interval "$TARPN_MON_STATS_INTERVAL")
+
+        # Stats collection itself only reads from the node, but it also
+        # broadcasts [LS1] on every RF port and posts a daily BBS bulletin.
+        # Both put traffic on the air, so both can be turned off without
+        # giving up the local statistics.
+        case "${TARPN_MON_STATS_CQ:-true}" in
+            false|no|off|0) args+=(-stats-no-cq) ;;
+        esac
+        case "${TARPN_MON_STATS_BULLETIN:-true}" in
+            false|no|off|0) args+=(-stats-no-bulletin) ;;
+        esac
+        ;;
+esac
+
+case "${TARPN_MON_DEBUG:-false}" in
+    true|yes|on|1) args+=(-debug) ;;
+esac
+
+# Anything else the operator wants to pass through verbatim.
+if [ -n "${TARPN_MON_EXTRA_ARGS:-}" ]; then
+    # shellcheck disable=SC2206
+    args+=(${TARPN_MON_EXTRA_ARGS})
+fi
+
+exec "$BINARY" "${args[@]}"

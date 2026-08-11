@@ -1,0 +1,44 @@
+#!/bin/bash
+# hostmode/postinstall - turn HOST mode on and provide the terminal.
+set -euo pipefail
+
+mod="$(module_dir hostmode)"
+[ "$TARPN_DRY_RUN" = true ] || chmod 0755 "${mod}/bin/tarpn-host"
+
+run ln -sfn "${mod}/bin/tarpn-host" "${TARPN_BINDIR}/tarpn-host"
+
+# minicom is an ordinary Debian package and is not installed here, for the
+# same reason nothing else is: this installer does not run apt, and a node
+# with no Internet could not anyway.
+if command -v minicom >/dev/null 2>&1; then
+    log_info "minicom $(minicom --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1) is installed"
+else
+    log_warn "minicom is not installed; the console cannot open without it"
+    log_dim "sudo apt install minicom"
+fi
+
+# Enabling HOST mode changes bpq32.cfg, which the engine only reads at start.
+if [ -f "$TARPN_NODE_CONF" ]; then
+    current="$(conf_get "$TARPN_NODE_CONF" HOST_MODE disabled)"
+    case "$current" in
+        enabled|true|yes|on)
+            log_dim "HOST_MODE is already enabled"
+            ;;
+        *)
+            conf_set "$TARPN_NODE_CONF" HOST_MODE enabled
+            log_info "Set HOST_MODE=enabled in ${TARPN_NODE_CONF}"
+            log_warn "run 'sudo tarpnctl apply' to add the console port and restart the engine"
+            ;;
+    esac
+else
+    log_warn "no ${TARPN_NODE_CONF} yet; set HOST_MODE=enabled once the node is configured"
+fi
+
+log_dim "then open it with: tarpn-host   (or: tarpnctl host)"
+
+# The stock TARPN build of minicom played a sound file on the terminal bell,
+# so the operator heard someone connect. Stock minicom leaves the bell to the
+# terminal. Say so once rather than let it look like a fault.
+log_dim "note: 'cbell on' rings the terminal bell on an incoming connection."
+log_dim "TARPN's patched minicom turned that into an audible chime; stock"
+log_dim "minicom does not, so whether you hear anything is up to your terminal."

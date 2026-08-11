@@ -194,3 +194,76 @@ deploy/
 - Raspberry Pi (ARM32/ARM64) or x86_64 Linux
 - Internet connection (for downloading binaries)
 - sudo/root access
+
+## Release channel layout
+
+`build-release.sh` publishes one directory per version plus a `latest/`
+mirror, and `../tarpn-node/` installs from `RELEASE_BASE_URL` / `RELEASE_VERSION`
+in `/etc/tarpn/tarpn.conf` (defaulting to this bucket and `latest`).
+
+```
+s3://tarpn-terminal/<version>/
+  tarpn-mon.linux-<arch>
+  tarpn-chat.linux-<arch>          canonical
+  tarpn-chat-<arch>                legacy alias, see below
+  send-routes-via-cq.linux-<arch>
+  linktest.linux-<arch>
+  manifest.json
+  scripts/
+s3://tarpn-terminal/latest/        synced from the newest version
+```
+
+Every component follows `<name>.linux-<arch>`. `tarpn-chat` was originally
+published as `tarpn-chat-<arch>`; releases now upload **both** names so the
+older `install.sh` in this directory keeps working, and the tarpn-node
+installer falls back to the legacy name when the canonical one is absent.
+Drop the alias once nothing installs with the old script.
+
+### Publishing a new architecture
+
+Adding an architecture that has never been published is safe to send straight
+to `latest/`: the sync no longer uses `--delete`, so it adds the new binaries
+alongside the existing ones rather than replacing them. Nodes on other
+architectures keep resolving exactly what they resolved before, and nodes on
+the new one start working with no configuration at all.
+
+The one thing it does overwrite is `latest/manifest.json`, which describes
+whichever architecture was published last. The tarpn-node installer builds
+URLs directly and never reads it, but the older `install.sh` in this directory
+reads its `version` field to decide whether to update - so publishing a build
+whose version string differs will make those nodes re-download a binary that
+has not actually changed. Harmless, but it is why the manifest is worth
+replacing with per-architecture ones eventually.
+
+### Prerelease and branch builds
+
+`--no-latest` uploads the version directory but leaves `latest/` alone, for a
+build that should be installable by name without becoming the default:
+
+```bash
+./build-release.sh --arch arm64 --no-latest
+```
+
+On the node under test, point at that version in `/etc/tarpn/tarpn.conf`:
+
+```
+RELEASE_VERSION=v0.1.1-4-g515e7b3
+```
+
+then `sudo tarpnctl update`. Nodes on the default `latest` are unaffected.
+
+### Publishing all architectures
+
+`--arch` builds one architecture at a time, and the per-version directory
+accumulates, so publishing all three means running it three times before the
+`latest/` sync reflects the full set:
+
+```bash
+./build-release.sh --arch arm32
+./build-release.sh --arch arm64
+./build-release.sh --arch amd64
+```
+
+Note that `manifest.json` is rewritten per architecture and therefore
+describes only the last one built. The tarpn-node installer constructs URLs
+directly and does not read it.

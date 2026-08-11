@@ -1,0 +1,9 @@
+#!/bin/bash
+# node-commands/preremove - stop advertising commands nothing will answer.
+set -euo pipefail
+
+if [ -f "$TARPN_NODE_CONF" ] && [ -n "$(conf_get "$TARPN_NODE_CONF" NODE_COMMANDS "")" ]; then
+    conf_set "$TARPN_NODE_CONF" NODE_COMMANDS ""
+    log_info "Cleared NODE_COMMANDS in ${TARPN_NODE_CONF}"
+    log_warn "run 'sudo tarpnctl apply' to remove them from the node menu"
+fi

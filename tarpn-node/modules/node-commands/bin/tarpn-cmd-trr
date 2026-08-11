@@ -1,0 +1,134 @@
+#!/bin/bash
+# TRR - link quality per neighbour, both directions.
+#
+# This is a reimplementation, not a port. The legacy TRR (w4eip_link_quality,
+# a perl script) read two files that this installation does not produce:
+#
+#   /usr/local/etc/tarpn_home_linkquality.dat   written by rx_tarpnstatapp
+#   /tmp/tarpn/tnpa/npa_port_*                  written by the NPA app
+#
+# Both of those are closed-source 32-bit binaries.
+#
+# tarpn-mon sees the very same [TARPNstat V2] broadcasts on the monitor stream
+# that rx_tarpnstatapp did, and records them in link_stats_tarpnstat. That
+# table keeps the monitor's R/T direction flag, so our own outgoing broadcast
+# and the neighbour's incoming one can be paired per port - which is exactly
+# the bilateral view the legacy linkquality file provided.
+#
+# This deliberately does NOT use link_stats_raw or link_stats_neighbor:
+#
+#   link_stats_raw       per-port L2 counters from LinBPQ's S command
+#   link_stats_neighbor  the same L2 counters carried in a neighbour's [LS1]
+#                        broadcast, which only nodes running this software emit
+#
+# Those are a different layer from TARPNstat's route-level tx/ret/buf, and the
+# [LS1] table is empty for every stock TARPN neighbour on the network.
+#
+# NOTE: the figures are cumulative counters as last broadcast, and they reset
+# when a node restarts. Compare against the legacy TRR on a live node before
+# trusting the numbers.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SELF_DIR}/_cmd-common.sh"
+
+DB="$(conf_get "$TARPN_CONF" LINK_STATS_DB "${TARPN_STATE}/mon/linkstats.db")"
+
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    say "TRR is not available: sqlite3 is not installed on this node."
+    exit 0
+fi
+
+if [ ! -r "$DB" ]; then
+    say "TRR has no data yet."
+    say "(needs the tarpn-mon module running to collect TARPNstat)"
+    exit 0
+fi
+
+say "TRR - link quality"
+say "$(date -R)"
+blank
+
+# Latest 'T' (our broadcast) and latest 'R' (the neighbour's) per port. Opened
+# read-only so this can never block or disturb tarpn-mon writing to the same
+# file.
+rows="$(sqlite3 -readonly -separator '|' "$DB" "
+WITH latest AS (
+    SELECT port_num, direction, MAX(timestamp) AS t
+    FROM link_stats_tarpnstat
+    GROUP BY port_num, direction
+),
+mine AS (
+    SELECT s.* FROM link_stats_tarpnstat s
+    JOIN latest l ON s.port_num = l.port_num
+                 AND s.direction = l.direction AND s.timestamp = l.t
+    WHERE s.direction = 'T'
+),
+theirs AS (
+    SELECT s.* FROM link_stats_tarpnstat s
+    JOIN latest l ON s.port_num = l.port_num
+                 AND s.direction = l.direction AND s.timestamp = l.t
+    WHERE s.direction = 'R'
+),
+-- UNION of both sides rather than a FULL OUTER JOIN: that syntax needs
+-- SQLite 3.39+, and Raspberry Pi OS Bullseye ships 3.34.
+ports AS (
+    SELECT port_num FROM mine
+    UNION
+    SELECT port_num FROM theirs
+)
+SELECT
+    p.port_num,
+    COALESCE(o.callsign, ''),
+    COALESCE(m.tx, -1), COALESCE(m.ret, -1), COALESCE(m.buf, -1), COALESCE(m.link_up, -1),
+    COALESCE(o.tx, -1), COALESCE(o.ret, -1), COALESCE(o.buf, -1), COALESCE(o.link_up, -1),
+    CASE WHEN o.timestamp IS NULL THEN 0
+         WHEN o.timestamp < datetime('now','-2 hours') THEN 1 ELSE 0 END
+FROM ports p
+LEFT JOIN mine m   ON m.port_num = p.port_num
+LEFT JOIN theirs o ON o.port_num = p.port_num
+ORDER BY p.port_num;
+" 2>/dev/null || true)"
+
+if [ -z "$rows" ]; then
+    say "No TARPNstat broadcasts recorded yet."
+    say "(they are sent every 15 minutes; allow a cycle after a restart)"
+    exit 0
+fi
+
+pct() { # sent retries -> retry percentage
+    if [ "${1:-0}" -gt 0 ] 2>/dev/null; then
+        awk -v s="$1" -v r="$2" 'BEGIN{printf "%.1f%%", (r*100.0)/s}'
+    else
+        printf -- '-'
+    fi
+}
+updown() { case "$1" in 1) printf 'up' ;; 0) printf 'DOWN' ;; *) printf -- '-' ;; esac; }
+
+# One format for the header and every row, so the columns cannot drift apart.
+row() { say "$(printf '%-3s %-10s %5s %7s %7s %5s %7s %7s' "$@")"; }
+
+say "$(printf '%15s%-21s %-21s' '' ' --- this node ---' '  --- neighbour ---')"
+row "Pt" "Neighbour" "link" "sent" "retry" "link" "sent" "retry"
+
+stale_total=0
+while IFS='|' read -r port call mtx mret mbuf mup otx oret obuf oup stale; do
+    [ -n "$port" ] || continue
+    [ "${stale:-0}" = 1 ] && stale_total=$((stale_total + 1))
+    mtx_s="$mtx"; [ "${mtx:--1}" -lt 0 ] 2>/dev/null && mtx_s="-"
+    otx_s="$otx"; [ "${otx:--1}" -lt 0 ] 2>/dev/null && otx_s="-"
+    row "$port" "${call:--}" "$(updown "$mup")" "$mtx_s" "$(pct "$mtx" "$mret")" \
+        "$(updown "$oup")" "$otx_s" "$(pct "$otx" "$oret")"
+done <<< "$rows"
+
+blank
+say "retry = retries as a share of info frames sent; lower is better."
+say "Both columns are each node's own TARPNstat broadcast, so a link that"
+say "looks good one way and bad the other is asymmetric."
+
+if [ "$stale_total" -gt 0 ]; then
+    say "${stale_total} neighbour(s) not heard from in over 2 hours."
+fi
+
+exit 0

@@ -1,0 +1,70 @@
+#!/bin/bash
+# tarpn-chat/postinstall - install the binary and generate tarpn-chat.toml.
+set -euo pipefail
+
+user="$(resolve_tarpn_user)"
+group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+mod="$(module_dir tarpn-chat)"
+state="${TARPN_STATE}/chat"
+conf="${TARPN_ETC}/tarpn-chat.toml"
+
+run install -d -m 0755 "${mod}/bin"
+install_release_binary tarpn-chat "${mod}/bin/tarpn-chat"
+run install -d -m 0755 -o "$user" -g "$group" "$state"
+
+# --- config -------------------------------------------------------------
+# Delegated to the configure hook, which `tarpnctl apply` also runs, so the
+# chat identity is created here and then kept in step with node.conf as the
+# operator edits it.
+. "${mod}/hooks/configure"
+
+# --- hand chat over from LinBPQ -----------------------------------------
+# LinBPQ's built-in LINCHAT and this server would answer on the same callsign,
+# so switch node.conf over. This changes bpq32.cfg, which needs the engine
+# restarted to take effect.
+current="$(conf_get "$TARPN_NODE_CONF" CHAT_PROVIDER linbpq)"
+if [ "$current" != tarpn-chat ] && [ -f "$TARPN_NODE_CONF" ]; then
+    conf_set "$TARPN_NODE_CONF" CHAT_PROVIDER tarpn-chat
+    log_info "Set CHAT_PROVIDER=tarpn-chat in ${TARPN_NODE_CONF}"
+    log_warn "run 'sudo tarpnctl apply' to disable LinBPQ's built-in chat and enable NETROMPORT"
+fi
+
+# --- point tarpn-mon at this server -------------------------------------
+# tarpn-mon seeds its settings file at its own install time, and if it was
+# installed before this module it will have left chat disabled. Flip it, but
+# only while the file is still exactly as tarpn-mon seeded it - once the web
+# UI has written to it, the operator's choices win.
+mon_settings="${TARPN_STATE}/mon/tarpn-mon.json"
+seeded_off='    "chat": { "enabled": false, "host": "localhost", "port": 8513 },'
+seeded_on='    "chat": { "enabled": true, "host": "localhost", "port": 8513 },'
+
+if module_is_installed tarpn-mon && [ -f "$mon_settings" ] && [ "$TARPN_DRY_RUN" != true ]; then
+    if grep -qF "$seeded_off" "$mon_settings"; then
+        tmp="$(mktemp "${mon_settings}.XXXXXX")"
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [ "$line" = "$seeded_off" ]; then printf '%s\n' "$seeded_on"; else printf '%s\n' "$line"; fi
+        done < "$mon_settings" > "$tmp"
+        chmod 0644 "$tmp"
+        chown "$user:$group" "$tmp" 2>/dev/null || true
+        mv "$tmp" "$mon_settings"
+        log_info "Enabled the chat feature in tarpn-mon"
+    elif ! grep -qF "$seeded_on" "$mon_settings"; then
+        log_dim "tarpn-mon settings have been edited; enable chat in the web UI if you want it"
+    fi
+fi
+
+# LinBPQ 6.0.25+ is required for NETROMPORT and this is the failure that is
+# hardest to diagnose from the logs, so check it up front.
+bpq_home="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+if [ -x "${bpq_home}/linbpq" ] && command -v strings >/dev/null 2>&1; then
+    ver="$(strings "${bpq_home}/linbpq" 2>/dev/null | grep -oE '6\.0\.[0-9]+\.[0-9]+' | head -1 || true)"
+    if [ -n "$ver" ]; then
+        minor="$(printf '%s' "$ver" | cut -d. -f3)"
+        if [ "$minor" -lt 25 ] 2>/dev/null; then
+            log_warn "LinBPQ ${ver} does not support NETROMPORT; 6.0.25 or newer is required"
+            log_dim "tarpn-chat will not be able to attach until LinBPQ is upgraded"
+        else
+            log_dim "LinBPQ ${ver} supports NETROMPORT"
+        fi
+    fi
+fi
