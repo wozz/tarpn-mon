@@ -108,6 +108,38 @@ here include operator-written CTEXT and INFO strings.
 The generator validates before writing and refuses to emit a config containing
 unresolved `q~token~q` placeholders, then replaces the file atomically.
 
+### AX.25 v2.2 and XID
+
+LinBPQ 6.0.25 advertises AX.25 v2.2, which means it sends **XID** frames at
+connect time to negotiate link parameters. A node running an older build does
+not answer them, so they are retransmitted until the retry count is exhausted.
+With TARPN's usual `FRACK 9000` and `RETRIES 20` that is minutes of airtime
+per connection attempt, on a link that gains nothing even when it succeeds.
+
+The generated config therefore sets `OnlyVer2point0=1` by default, which
+clears LinBPQ's `SUPPORT2point2` flag and stops the XID frames. `AX25_V22` in
+`node.conf` turns it back on once every neighbour on every port also runs
+6.0.25 or newer.
+
+Link compression (`L2Compress`, `L4Compress`, also 6.0.25) is a separate
+setting and defaults to off in LinBPQ itself — the config struct is zeroed
+before parsing and the runtime flags initialise to 0, so omitting the keywords
+leaves it disabled. It is exposed as `L2_COMPRESS` and `L4_COMPRESS` anyway,
+both defaulting off, because the keywords are otherwise invisible.
+
+Compression cannot be reached without v2.2: the capability is advertised as
+XID parameter fields 16 and 17 ("Can Compress", "Compress ok"), and both ends
+must have it enabled — the connect handler requires the peer's flag *and* the
+local setting before it turns compression on. So it is opt-in on both sides
+and cannot be triggered by a neighbour alone.
+
+> All three keywords are new in 6.0.25, but emitting them against an older
+> engine is harmless: LinBPQ logs `bpq32.cfg line no N not recognised -
+> Ignored` and carries on. An older build does not implement v2.2 in the first
+> place, so the default is correct there too. The compression lines are still
+> omitted unless enabled, to keep that message out of the log for settings
+> that would do nothing.
+
 ### Divergences from the stock template
 
 1. **Per-port FRACK is honoured.** The stock template hardcodes `FRACK=9000`

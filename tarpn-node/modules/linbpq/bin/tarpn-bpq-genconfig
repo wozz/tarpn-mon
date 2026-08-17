@@ -160,6 +160,36 @@ case "$CHAT_PROVIDER" in
         ;;
 esac
 
+# AX.25 version. LinBPQ 6.0.25 advertises v2.2 by default, which means it
+# sends XID frames to negotiate link parameters at connect time.
+#
+# A node running an older build does not answer XID, so the frames are
+# retransmitted until the retry count is exhausted - with TARPN's usual
+# FRACK 9000 and RETRIES 20 that is minutes of airtime per connection, on a
+# link where nothing was gained even if it had worked.
+#
+# Off by default here, because a TARPN network is mostly nodes that predate
+# this. Turn it on once the neighbours on every port also run 6.0.25+.
+case "$(nc AX25_V22 false)" in
+    true|yes|on|1)
+        tok only-v20 ";"
+        log_warn "AX25_V22 is on; this node will send XID frames, which older neighbours will not answer"
+        ;;
+    *)
+        tok only-v20 ""
+        ;;
+esac
+
+# Link compression, also 6.0.25 and later. Both ends have to have it on - the
+# capability is advertised inside XID, so with AX25_V22 off it is never
+# offered at all and these have no effect.
+for _c in l2 l4; do
+    case "$(nc "$(printf '%s' "$_c" | tr '[:lower:]' '[:upper:]')_COMPRESS" false)" in
+        true|yes|on|1) tok "${_c}compress" "" ;;
+        *)             tok "${_c}compress" ";" ;;
+    esac
+done
+
 # Node helper commands (TRR, LINUX, TCHAT, TINFO, LINKTEST). Each is an
 # APPLICATION that tells LinBPQ to connect out to a CMDPORT socket, where the
 # node-commands module is listening. Advertise only the ones actually being

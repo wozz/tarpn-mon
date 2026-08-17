@@ -60,6 +60,26 @@ CHAT_PROVIDER=linbpq
 # CHAT_PROVIDER=tarpn-chat. Requires LinBPQ 6.0.25 or newer.
 NETROM_PORT=63119
 
+# ---------------------------------------------------------------------------
+# Link behaviour
+# ---------------------------------------------------------------------------
+
+# Advertise AX.25 v2.2. LinBPQ 6.0.25 does this by default, which means it
+# sends XID frames at connect time to negotiate link parameters.
+#
+# A node running an older build does not answer XID, so those frames are
+# retransmitted until the retries run out - with FRACK 9000 and RETRIES 20
+# that is minutes of airtime per connection attempt, gaining nothing.
+#
+# Off unless every neighbour on every port also runs 6.0.25 or newer.
+AX25_V22=false
+
+# Link compression, LinBPQ 6.0.25 and later. Both ends must have it on. The
+# capability is advertised inside XID, so with AX25_V22=false it is never
+# offered and these do nothing.
+L2_COMPRESS=false
+L4_COMPRESS=false
+
 # HOST mode gives you a terminal into this node from the node's own console,
 # over a pseudo-terminal rather than the network. Install the `hostmode`
 # module and it sets this for you; `tarpnctl host` then opens the session.
