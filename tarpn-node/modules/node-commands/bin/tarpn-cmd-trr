@@ -24,9 +24,28 @@
 # Those are a different layer from TARPNstat's route-level tx/ret/buf, and the
 # [LS1] table is empty for every stock TARPN neighbour on the network.
 #
+# The output matches TARPN's current TRR (trr.app, from trr5.zip), read out of
+# the unstripped binary rather than guessed:
+#
+#   "TRR v%u", "  Results are in sets of 3: recent, hour, and longest"
+#   "port call  |    Tx Rate    |  Tx Retries  |    Rx Rate    |  Rx Retries"
+#   row     "%u %9s|", rates " %4.1f", retries "%3u%%" or "----"
+#   staleness " MISSING %u days" / " MISSING %u hours" / " MISSING for %um"
+#
+# and its three windows, from the debug strings "sum-of-last-1",
+# "sum-of-last-4" and "sum-of-last-%u":
+#
+#   recent   the last two broadcasts
+#   hour     the last five, which at the 15 minute broadcast interval is an hour
+#   longest  every retained broadcast, as trr.app takes `tail -100` of the file
+#
+# Rate is frames per hour: trr.app multiplies delta/seconds by a literal
+# 3600.0. Its "nan" is that division with a zero time span - printed here as
+# "nan" too, since a blank would read as zero traffic rather than no data.
+#
 # NOTE: the figures are cumulative counters as last broadcast, and they reset
-# when a node restarts. Compare against the legacy TRR on a live node before
-# trusting the numbers.
+# when a node restarts. A negative delta means a restart inside the window and
+# is reported as no data rather than as a nonsense rate.
 
 set -uo pipefail
 
@@ -46,49 +65,29 @@ if [ ! -r "$DB" ]; then
     exit 0
 fi
 
-say "TRR - link quality"
-say "$(date -R)"
-blank
+# Version reported in the banner. Not TARPN's - theirs counts their releases,
+# and claiming one of their numbers would misattribute any difference.
+TRR_VERSION=1
 
-# Latest 'T' (our broadcast) and latest 'R' (the neighbour's) per port. Opened
-# read-only so this can never block or disturb tarpn-mon writing to the same
-# file.
+# 15 minutes, the interval send-routes-via-cq broadcasts on, so five samples
+# span an hour the way trr.app's "sum-of-last-4" does.
+WINDOW_HOUR=5
+WINDOW_MAX=100
+
+say "TRR v${TRR_VERSION}  Results are in sets of 3: recent, hour, and longest"
+say "port call  |    Tx Rate    |  Tx Retries  |    Rx Rate    |  Rx Retries"
+
+# Newest first, capped like trr.app's tail -100. Read-only so this can never
+# block tarpn-mon writing the same file.
 rows="$(sqlite3 -readonly -separator '|' "$DB" "
-WITH latest AS (
-    SELECT port_num, direction, MAX(timestamp) AS t
-    FROM link_stats_tarpnstat
-    GROUP BY port_num, direction
-),
-mine AS (
-    SELECT s.* FROM link_stats_tarpnstat s
-    JOIN latest l ON s.port_num = l.port_num
-                 AND s.direction = l.direction AND s.timestamp = l.t
-    WHERE s.direction = 'T'
-),
-theirs AS (
-    SELECT s.* FROM link_stats_tarpnstat s
-    JOIN latest l ON s.port_num = l.port_num
-                 AND s.direction = l.direction AND s.timestamp = l.t
-    WHERE s.direction = 'R'
-),
--- UNION of both sides rather than a FULL OUTER JOIN: that syntax needs
--- SQLite 3.39+, and Raspberry Pi OS Bullseye ships 3.34.
-ports AS (
-    SELECT port_num FROM mine
-    UNION
-    SELECT port_num FROM theirs
+SELECT port_num, direction, CAST(strftime('%s', timestamp) AS INTEGER), callsign, tx, ret
+FROM (
+    SELECT s.*, ROW_NUMBER() OVER (
+               PARTITION BY port_num, direction ORDER BY timestamp DESC) AS rn
+    FROM link_stats_tarpnstat s
 )
-SELECT
-    p.port_num,
-    COALESCE(o.callsign, ''),
-    COALESCE(m.tx, -1), COALESCE(m.ret, -1), COALESCE(m.buf, -1), COALESCE(m.link_up, -1),
-    COALESCE(o.tx, -1), COALESCE(o.ret, -1), COALESCE(o.buf, -1), COALESCE(o.link_up, -1),
-    CASE WHEN o.timestamp IS NULL THEN 0
-         WHEN o.timestamp < datetime('now','-2 hours') THEN 1 ELSE 0 END
-FROM ports p
-LEFT JOIN mine m   ON m.port_num = p.port_num
-LEFT JOIN theirs o ON o.port_num = p.port_num
-ORDER BY p.port_num;
+WHERE rn <= ${WINDOW_MAX}
+ORDER BY port_num, direction, rn;
 " 2>/dev/null || true)"
 
 if [ -z "$rows" ]; then
@@ -97,38 +96,69 @@ if [ -z "$rows" ]; then
     exit 0
 fi
 
-pct() { # sent retries -> retry percentage
-    if [ "${1:-0}" -gt 0 ] 2>/dev/null; then
-        awk -v s="$1" -v r="$2" 'BEGIN{printf "%.1f%%", (r*100.0)/s}'
-    else
-        printf -- '-'
-    fi
+printf '%s\n' "$rows" | awk -F'|' -v now="$(date +%s)" -v hourw="$WINDOW_HOUR" '
+# Collect per port and direction, already newest-first.
+{
+    p = $1; d = $2
+    n[p,d]++
+    i = n[p,d]
+    t[p,d,i] = $3; tx[p,d,i] = $5; rt[p,d,i] = $6
+    if (i == 1) { call[p] = $4; if (d == "R") lastR[p] = $3 }
+    seen[p] = 1
 }
-updown() { case "$1" in 1) printf 'up' ;; 0) printf 'DOWN' ;; *) printf -- '-' ;; esac; }
 
-# One format for the header and every row, so the columns cannot drift apart.
-row() { say "$(printf '%-3s %-10s %5s %7s %7s %5s %7s %7s' "$@")"; }
+# rate over the window ending at the newest sample and starting at index j,
+# in frames per hour. Returns "nan" when the span is zero, as trr.app does,
+# and when a counter has gone backwards - a node restarted mid-window.
+function rate(p, d, j,   dt, dtx, v) {
+    if (n[p,d] < j) return " nan"
+    dt  = t[p,d,1]  - t[p,d,j]
+    dtx = tx[p,d,1] - tx[p,d,j]
+    if (dt <= 0 || dtx < 0) return " nan"
+    v = (dtx / dt) * 3600
+    # Every field is exactly four characters or the columns shear. trr.app
+    # carries both " %4.1f" and " %4.0f" for the same reason: one decimal
+    # place stops fitting at 100.
+    if (v >= 100) return sprintf("%4.0f", v)
+    return sprintf("%4.1f", v)
+}
 
-say "$(printf '%15s%-21s %-21s' '' ' --- this node ---' '  --- neighbour ---')"
-row "Pt" "Neighbour" "link" "sent" "retry" "link" "sent" "retry"
+# retries as a percentage of frames sent over the same window. "----" when
+# there is nothing to divide by, which is trr.app s placeholder.
+function retry(p, d, j,   dtx, drt) {
+    if (n[p,d] < j) return "----"
+    dtx = tx[p,d,1] - tx[p,d,j]
+    drt = rt[p,d,1] - rt[p,d,j]
+    if (dtx <= 0 || drt < 0) return "----"
+    return sprintf("%3u%%", (drt * 100) / dtx)
+}
 
-stale_total=0
-while IFS='|' read -r port call mtx mret mbuf mup otx oret obuf oup stale; do
-    [ -n "$port" ] || continue
-    [ "${stale:-0}" = 1 ] && stale_total=$((stale_total + 1))
-    mtx_s="$mtx"; [ "${mtx:--1}" -lt 0 ] 2>/dev/null && mtx_s="-"
-    otx_s="$otx"; [ "${otx:--1}" -lt 0 ] 2>/dev/null && otx_s="-"
-    row "$port" "${call:--}" "$(updown "$mup")" "$mtx_s" "$(pct "$mtx" "$mret")" \
-        "$(updown "$oup")" "$otx_s" "$(pct "$otx" "$oret")"
-done <<< "$rows"
+# How long since the neighbour was last heard. trr.app reports this whenever
+# it has a gap, in whichever unit reads best.
+function missing(p,   age) {
+    if (!(p in lastR)) return " MISSING"
+    age = now - lastR[p]
+    if (age < 1800)  return ""
+    if (age < 86400) return sprintf(" MISSING %u hours", int(age / 3600))
+    return sprintf(" MISSING %u days", int(age / 86400))
+}
+
+END {
+    # Ports are small integers, so walk the range rather than sorting the keys:
+    # asorti is a gawk extension and Raspberry Pi OS ships mawk.
+    for (p = 1; p <= 32; p++) {
+        if (!(p in seen)) continue
+        last = (n[p,"T"] > n[p,"R"] ? n[p,"T"] : n[p,"R"])
+        printf "%u %9s| %s %s %s|%s %s %s| %s %s %s|%s %s %s|%s\n", p, call[p],
+            rate(p,"T",2), rate(p,"T",hourw), rate(p,"T",last),
+            retry(p,"T",2), retry(p,"T",hourw), retry(p,"T",last),
+            rate(p,"R",2), rate(p,"R",hourw), rate(p,"R",last),
+            retry(p,"R",2), retry(p,"R",hourw), retry(p,"R",last),
+            missing(p)
+    }
+}' | while IFS= read -r line; do say "$line"; done
 
 blank
-say "retry = retries as a share of info frames sent; lower is better."
-say "Both columns are each node's own TARPNstat broadcast, so a link that"
-say "looks good one way and bad the other is asymmetric."
-
-if [ "$stale_total" -gt 0 ]; then
-    say "${stale_total} neighbour(s) not heard from in over 2 hours."
-fi
-
+say "Tx is this node, Rx is the neighbour, each from its own broadcast,"
+say "so a link good one way and bad the other is asymmetric."
 exit 0

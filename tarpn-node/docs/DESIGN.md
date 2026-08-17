@@ -523,6 +523,41 @@ any station that can connect to the node:
 
 ### TRR needed a new data source, and there are two to choose between
 
+### The output matches TARPN's current TRR
+
+TARPN's TRR has moved on from the perl script. `update.sh` now fetches
+`trr5.zip` and installs `trr.app`, a compiled binary, keeping the perl one only
+as a fallback — `trr.sh` runs the binary when
+`/usr/local/etc/tarpn_home_linkquality.dat` exists and falls back otherwise.
+The published `w4eip_link_quality.txt` is still version 9.1t and no longer
+reflects what operators see.
+
+`trr.app` ships unstripped, so the format is read rather than guessed:
+
+| String | Use |
+|---|---|
+| `TRR v%u` | banner |
+| `  Results are in sets of 3: recent, hour, and longest` | header |
+| `port call  \|    Tx Rate    \|  Tx Retries  \|    Rx Rate    \|  Rx Retries` | columns |
+| `%u %9s\|` | port and callsign |
+| ` %4.1f` / ` %4.0f` | rate, the second once a decimal no longer fits |
+| `%3u%%`, `----` | retry percentage, and no data |
+| ` MISSING %u days` / ` MISSING %u hours` / ` MISSING for %um` | staleness |
+
+The three windows come from its debug strings — `sum-of-last-1`,
+`sum-of-last-4` and `sum-of-last-%u`: the last two broadcasts, the last five
+(an hour at the 15 minute interval), and everything retained, since `trr.sh`
+pipes `tail -100` into it.
+
+Rate is **frames per hour**: the binary multiplies delta-over-seconds by a
+literal `3600.0` held at `0x13ad0`. Its `nan` is that division with a zero time
+span, which is reproduced here rather than blanked, because an empty column
+would read as "no traffic" instead of "no data".
+
+Ours reports `TRR v1`, not one of TARPN's numbers: the columns match, but the
+data comes from a different source, and borrowing their version would
+misattribute any difference.
+
 The legacy `TRR` is a perl script reading two files this installation does not
 produce: `tarpn_home_linkquality.dat` from `rx_tarpnstatapp`, and
 `/tmp/tarpn/tnpa/npa_port_*` from the NPA app — both closed-source 32-bit
