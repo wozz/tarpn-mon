@@ -108,8 +108,28 @@ sudo tarpnctl apply
 
 Installing it switches `CHAT_PROVIDER` in `node.conf` and turns LinBPQ's own
 chat off — they cannot both answer on the same callsign. Removing it switches
-back. Existing chat peers are read out of an old `chatconfig.cfg` if there is
-one.
+back.
+
+**Peers.** `tarpn-chat` only connects to the nodes listed under `[[peers]]` in
+`/etc/tarpn/tarpn-chat.toml`. With none it attaches to LinBPQ and stops there,
+which looks the same as a radio problem. They are filled in for you:
+
+1. from an old `chatconfig.cfg` (`OtherChatNodes`) if there is one, or
+2. from the neighbours in `node.conf`, as `<neighbour base call>-9`
+
+The second is a convention, not a fact — edit the file if a neighbour runs no
+chat node, or if you reach a chat node further away. It is written on install
+and, if the file has no `[[peers]]` at all, topped up by `tarpnctl apply` once
+neighbours exist. A peer you delete stays deleted.
+
+`[[known_nodes]]` in the same file is only for showing the right alias for
+inbound sessions — putting a peer there does not cause it to be dialled.
+
+Check what it is doing with:
+
+```bash
+journalctl -u tarpn-chat | grep "attempt connections to peers"
+```
 
 ### `qtterm` — QtTermTCP on the node's desktop
 For operators who use the node's own screen, over VNC or a monitor.

@@ -255,3 +255,47 @@ port = 63005
         assert_eq!(peer.host, Some("192.168.1.100".to_string()));
     }
 }
+#[test]
+fn tarpn_chat_module_config_yields_dialable_peers() {
+    // Exactly what tarpn-node/modules/tarpn-chat/hooks/configure writes.
+    // Peers must land in [[peers]]: that is the only list the server dials.
+    // [[known_nodes]] supplies aliases for announcing sessions, so a config
+    // with the peers in that section alone connects to LinBPQ and then sits
+    // there doing nothing, which looks exactly like a radio fault.
+    let text = r#"
+# Managed by the tarpn-chat module
+[node]
+call = "WA2M-9"
+alias = "ZA2M09"
+
+[netrom]
+linbpq = "127.0.0.1:63119"
+
+[client]
+port = 8513
+bind = "127.0.0.1"
+max_clients = 10
+
+[[peers]]
+call = "N2IRZ-9"
+
+[[peers]]
+call = "TEST1-9"
+alias = "T1CHAT"
+
+[[known_nodes]]
+call = "TEST1-9"
+alias = "T1CHAT"
+"#;
+
+    let cfg: Config = toml::from_str(text).expect("module-generated config must parse");
+    assert_eq!(cfg.node.call, "WA2M-9");
+    assert_eq!(
+        cfg.peers.len(),
+        2,
+        "peers drive outbound connections; without them the node dials nobody"
+    );
+    assert_eq!(cfg.peers[0].call, "N2IRZ-9");
+    assert!(cfg.peers[0].alias.is_none(), "alias is optional for a derived peer");
+    assert_eq!(cfg.known_nodes.len(), 1);
+}
