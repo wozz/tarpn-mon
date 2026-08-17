@@ -15,19 +15,19 @@ import (
 // Called from the monitor loop in main.go when an [LS1] CQ broadcast is detected.
 func BroadcastNeighborCQ(rxPort int, msg *LinkStatCQMessage) {
 	data := map[string]interface{}{
-		"type":           "neighbor_link_stats",
-		"callsign":       msg.Callsign,
-		"reportedPort":   msg.PortNum,
-		"rxPort":         rxPort,
-		"l2Rxed":         msg.L2Rxed,
-		"l2Sent":         msg.L2Sent,
-		"l2Timeouts":     msg.L2Timeouts,
-		"rejRxed":        msg.REJRxed,
-		"rxCrcErrors":    msg.RXCRCErrors,
-		"abandoned":      msg.Abandoned,
-		"activeTxPct":    msg.ActiveTxPct,
-		"activeBusyPct":  msg.ActiveBusyPct,
-		"timestamp":      time.Now().UTC().Format(time.RFC3339),
+		"type":          "neighbor_link_stats",
+		"callsign":      msg.Callsign,
+		"reportedPort":  msg.PortNum,
+		"rxPort":        rxPort,
+		"l2Rxed":        msg.L2Rxed,
+		"l2Sent":        msg.L2Sent,
+		"l2Timeouts":    msg.L2Timeouts,
+		"rejRxed":       msg.REJRxed,
+		"rxCrcErrors":   msg.RXCRCErrors,
+		"abandoned":     msg.Abandoned,
+		"activeTxPct":   msg.ActiveTxPct,
+		"activeBusyPct": msg.ActiveBusyPct,
+		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 	}
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -50,12 +50,12 @@ var upgrader = websocket.Upgrader{
 
 type ClientCommand struct {
 	Cmd       string `json:"cmd"`
-	LastSeq   int64  `json:"last_seq"`    // for "sync" - get messages after this seq
-	BeforeSeq int64  `json:"before_seq"`  // for "load_before" - get messages before this seq
-	Limit     int    `json:"limit"`       // for "latest" and "load_before" - max items to return
+	LastSeq   int64  `json:"last_seq"`   // for "sync" - get messages after this seq
+	BeforeSeq int64  `json:"before_seq"` // for "load_before" - get messages before this seq
+	Limit     int    `json:"limit"`      // for "latest" and "load_before" - max items to return
 
 	// Feature connection fields
-	Feature  string            `json:"feature,omitempty"`  // "chat", "bbs", "node"
+	Feature  string            `json:"feature,omitempty"` // "chat", "bbs", "node"
 	Host     string            `json:"host,omitempty"`
 	Port     int               `json:"port,omitempty"`
 	Callsign string            `json:"callsign,omitempty"`
@@ -309,14 +309,28 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 					}
 					since := time.Now().Add(-time.Duration(hours) * time.Hour)
 					summaries, err := linkStatsCollectorRef.storage.GetHourlySummary(cmd.PortNum, since)
+					resolution := "hourly"
+					if err == nil && len(summaries) == 0 {
+						// Only whole elapsed hours are ever compacted, so a node
+						// that started recently has raw samples but nothing
+						// hourly, and the graph would sit empty for up to two
+						// hours after every restart. Fall back to five-minute
+						// buckets computed on the fly. Same field names, so the
+						// client renders them without knowing the difference.
+						if fine, ferr := linkStatsCollectorRef.storage.Get5MinSummary(cmd.PortNum, since); ferr == nil && len(fine) > 0 {
+							summaries = hourlyFrom5Min(fine)
+							resolution = "5min"
+						}
+					}
 					if err != nil {
 						wsLog.Warnw("Failed to get link stats history", "error", err)
 					} else {
 						histMsg := map[string]interface{}{
-							"type":    "link_stats_history",
-							"portNum": cmd.PortNum,
-							"hours":   hours,
-							"data":    summaries,
+							"type":       "link_stats_history",
+							"portNum":    cmd.PortNum,
+							"hours":      hours,
+							"resolution": resolution,
+							"data":       summaries,
 						}
 						if histData, err := json.Marshal(histMsg); err == nil {
 							wc.write(string(histData))
@@ -482,9 +496,9 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 
 // StatusResponse contains server status and feature flags
 type StatusResponse struct {
-	Version  string         `json:"version"`
-	Features FeatureFlags   `json:"features"`
-	Buffer   BufferInfo     `json:"buffer"`
+	Version  string       `json:"version"`
+	Features FeatureFlags `json:"features"`
+	Buffer   BufferInfo   `json:"buffer"`
 }
 
 // FeatureFlags indicates which features are enabled on the server

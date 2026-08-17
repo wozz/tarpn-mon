@@ -625,6 +625,19 @@ func (c *LinkStatsCollector) runCompaction(ctx context.Context) {
 		return
 	}
 
+	// Compact once at startup as well as on the tick. The ticker only fires
+	// after a full hour of uptime, so without this a service that is restarted
+	// more often than that - during an update, or by Restart=always - never
+	// compacts at all, and the hourly table stays empty however long raw data
+	// has been accumulating. That shows up as an empty graph on the stats page
+	// with no error anywhere, since the raw samples are being written fine.
+	if err := c.storage.CompactHourly(); err != nil {
+		statsLog.Errorw("Startup compaction failed", "error", err)
+	}
+	if err := c.storage.CompactDaily(); err != nil {
+		statsLog.Errorw("Startup daily compaction failed", "error", err)
+	}
+
 	// Run compaction hourly
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()

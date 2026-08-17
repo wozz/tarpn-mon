@@ -1040,3 +1040,27 @@ func (s *LinkStatsStorage) PurgeOldTARPNStat(retention time.Duration) error {
 func (s *LinkStatsStorage) Close() error {
 	return s.db.Close()
 }
+
+// hourlyFrom5Min re-labels five-minute buckets as HourlySummary so the client
+// can render them with no knowledge of which resolution it was given. Used only
+// as a fallback when nothing has been compacted yet; the bucket start goes into
+// HourStart, which is what the chart plots against.
+func hourlyFrom5Min(in []FiveMinSummary) []HourlySummary {
+	out := make([]HourlySummary, 0, len(in))
+	for _, f := range in {
+		out = append(out, HourlySummary{
+			HourStart:       f.BucketStart,
+			PortNum:         f.PortNum,
+			DeltaL2Rxed:     f.DeltaL2Rxed,
+			DeltaL2Sent:     f.DeltaL2Sent,
+			DeltaL2Timeouts: f.DeltaL2Timeouts,
+			DeltaREJRxed:    f.DeltaREJRxed,
+			DeltaCRCErrors:  f.DeltaCRCErrors,
+			DeltaAbandoned:  f.DeltaAbandoned,
+			AvgTxPct:        f.AvgTxPct,
+			AvgBusyPct:      f.AvgBusyPct,
+			SampleCount:     f.SampleCount,
+		})
+	}
+	return out
+}
