@@ -25,6 +25,10 @@ var Version = "dev"
 
 const (
 	NodeAddress = "127.0.0.1:8010"
+	// Legacy location, kept as the default so an existing node keeps writing
+	// where TARPN Home expects. Override with --log=PATH, or --log= to turn it
+	// off entirely: under systemd the service runs unprivileged with
+	// ProtectSystem=strict, where /var/log is neither writable nor owned by it.
 	LogFileName = "/var/log/tarpn_linkstatus.log"
 	MaxRoutes   = 22
 	MaxPorts    = 32 // Supports higher port numbers
@@ -76,6 +80,8 @@ func main() {
 			// Parse comma-separated list of ports to skip
 			portList := strings.TrimPrefix(arg, "--skip=")
 			parseSkipPorts(portList)
+		case strings.HasPrefix(arg, "--log="):
+			logFile = strings.TrimPrefix(arg, "--log=")
 		case arg == "--no-skip":
 			// Clear default skip list
 			skipPorts = make(map[int]bool)
@@ -150,12 +156,15 @@ Options:
   -h, --help        Show this help message
   --skip=PORTS      Comma-separated list of ports to skip (default: 32)
   --no-skip         Don't skip any ports (clear default skip list)
+  --log=PATH        Append the link-status summary to PATH
+                    (default /var/log/tarpn_linkstatus.log; --log= disables it)
 
 Examples:
   send-routes-via-cq                    # Run with default settings (skip port 32)
   send-routes-via-cq --skip=32,33       # Skip ports 32 and 33
   send-routes-via-cq --no-skip          # Don't skip any ports
   send-routes-via-cq --skip=            # Don't skip any ports (empty list)
+  send-routes-via-cq --log=             # Don't write the legacy status log
 `, Version)
 }
 
@@ -492,9 +501,15 @@ func broadcastOnPort(route RouteEntry, myCallsign string) error {
 	return nil
 }
 
+// logFile is where the link status summary is appended. Empty disables it.
+var logFile = LogFileName
+
 // writeLogFile writes the link status to the log file
 func writeLogFile(linkStatus []rune) {
-	f, err := os.OpenFile(LogFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if logFile == "" {
+		return
+	}
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("Warning: could not open log file: %v", err)
 		return

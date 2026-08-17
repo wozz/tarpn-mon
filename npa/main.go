@@ -343,21 +343,35 @@ func dial(addr string, verbose bool) (*conn, error) {
 	}
 	nc.callsign = call
 
+	var last string
 	for _, step := range []string{call, "p", "password"} {
 		if err := nc.write(step + "\r"); err != nil {
 			nc.close()
 			return nil, err
 		}
-		if _, err := nc.read(); err != nil {
+		reply, err := nc.read()
+		if err != nil {
 			nc.close()
 			return nil, fmt.Errorf("during login: %w", err)
 		}
+		last = reply
 	}
 
 	// "password" with no argument authorises outright when the telnet user
 	// carries the SYSOP flag (PWDCMD short-circuits on Secure_Session). If it
 	// did not, the node answers with a five-number challenge instead, and the
 	// route commands below would be refused.
+	//
+	// Check we actually got in. A rejected username is not reported as an
+	// error by the node - it just prompts again - so without this the whole
+	// run carries on feeding commands to a login prompt, parses nothing out of
+	// the replies, and reports "no changes needed" as though all were well.
+	if !strings.Contains(clean(last), "}") {
+		nc.close()
+		return nil, fmt.Errorf("logged in as %q but the node did not give a command prompt; "+
+			"last reply was %q\n\tthe telnet username is matched case-sensitively, so it must "+
+			"match the USER line in bpq32.cfg exactly", call, trim(clean(last)))
+	}
 	return nc, nil
 }
 
@@ -371,11 +385,28 @@ func callsignFromPrompt(prompt string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	call := strings.ToUpper(fields[len(fields)-1])
-	if !validCall(call) {
+	call := fields[len(fields)-1]
+
+	// Returned exactly as the node printed it, NOT upper-cased. The telnet
+	// server compares the username with strcmp (TelnetV6.c), so the match is
+	// case-sensitive, and the generated config writes the operator callsign in
+	// lower case in both LOGINPROMPT and USER. Sending "WA2M" against
+	// "USER=wa2m" is simply a failed login - and a failed login is quiet,
+	// because everything sent afterwards is read as another username attempt
+	// until the fifth one makes the node hang up.
+	if !validCall(strings.ToUpper(call)) {
 		return ""
 	}
 	return call
+}
+
+// trim collapses a node reply to something short enough for an error message.
+func trim(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 120 {
+		s = s[:120] + "..."
+	}
+	return s
 }
 
 func clean(s string) string {
@@ -494,6 +525,12 @@ func (nc *conn) mheard(port int) (map[string]bool, error) {
 	}
 	if strings.Contains(out, "Invalid Port") {
 		return nil, errNoSuchPort
+	}
+	// An empty heard list still carries the header, so a reply without one is
+	// not "nothing heard" - it means we are not talking to the node the way we
+	// think we are, and silently reporting no neighbours would hide that.
+	if !strings.Contains(out, "Heard List") && !strings.Contains(out, "MHeard List") {
+		return nil, fmt.Errorf("unexpected reply to MH: %q", trim(clean(out)))
 	}
 	return parseMHeard(out), nil
 }

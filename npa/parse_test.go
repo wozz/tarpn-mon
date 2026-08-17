@@ -76,13 +76,20 @@ func TestParseMHeardEmpty(t *testing.T) {
 	}
 }
 
-func TestCallsignFromPrompt(t *testing.T) {
+// The telnet server compares the username with strcmp (TelnetV6.c), so the
+// login is case-sensitive, and the generated config writes the operator
+// callsign in lower case in both LOGINPROMPT and USER. The callsign must
+// therefore come back exactly as the node printed it. Upper-casing it here
+// silently fails every login, and a failed login is invisible: the node just
+// prompts again, so every later command is read as another username attempt.
+func TestCallsignFromPromptPreservesCase(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"wa2m:", "WA2M"},
-		{"\r\nwa2m:", "WA2M"},
-		{"Welcome to MIKE\rwa2m:", "WA2M"},
-		{"nothing", ""}, // no colon
-		{"!!!!:", ""},   // not callsign-shaped
+		{"wa2m:", "wa2m"},
+		{"\r\nwa2m:", "wa2m"},
+		{"Welcome to MIKE\rwa2m:", "wa2m"},
+		{"WA2M:", "WA2M"}, // an upper-case USER line is passed through too
+		{"nothing", ""},   // no colon
+		{"!!!!:", ""},     // not callsign-shaped
 	} {
 		if got := callsignFromPrompt(tc.in); got != tc.want {
 			t.Errorf("callsignFromPrompt(%q) = %q, want %q", tc.in, got, tc.want)

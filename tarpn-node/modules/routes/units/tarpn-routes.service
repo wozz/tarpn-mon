@@ -12,7 +12,10 @@ After=tarpn-linbpq.service
 Type=oneshot
 User=@TARPN_USER@
 Group=@TARPN_GROUP@
-ExecStart=@TARPN_PREFIX@/modules/routes/bin/send-routes-via-cq
+# --log= disables the legacy /var/log/tarpn_linkstatus.log. That file existed
+# for TARPN Home, which this installation does not ship, and ProtectSystem=strict
+# plus running unprivileged means the write fails and warns on every run.
+ExecStart=@TARPN_PREFIX@/modules/routes/bin/send-routes-via-cq --log=
 
 # The node engine may legitimately be down when the timer fires. That is not
 # an error worth alerting on; the next run in 15 minutes will pick it up.
