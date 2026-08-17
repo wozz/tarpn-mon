@@ -103,7 +103,10 @@ printf '%s\n' "$rows" | awk -F'|' -v now="$(date +%s)" -v hourw="$WINDOW_HOUR" '
     n[p,d]++
     i = n[p,d]
     t[p,d,i] = $3; tx[p,d,i] = $5; rt[p,d,i] = $6
-    if (i == 1) { call[p] = $4; if (d == "R") lastR[p] = $3 }
+    # The callsign in a TARPNstat message is the sender. Direction T is our
+    # own broadcast, so it carries this node - taking it from there labels
+    # every row with our own call. Only R names the neighbour.
+    if (i == 1 && d == "R") { call[p] = $4; lastR[p] = $3 }
     seen[p] = 1
 }
 
@@ -135,10 +138,14 @@ function retry(p, d, j,   dtx, drt) {
 
 # How long since the neighbour was last heard. trr.app reports this whenever
 # it has a gap, in whichever unit reads best.
+# Broadcasts arrive every 15 minutes, so nothing for two of them is a gap
+# worth reporting. trr.app carries a minutes form as well as hours and days;
+# without it anything under an hour rounds down to "MISSING 0 hours".
 function missing(p,   age) {
     if (!(p in lastR)) return " MISSING"
     age = now - lastR[p]
     if (age < 1800)  return ""
+    if (age < 3600)  return sprintf(" MISSING for %um", int(age / 60))
     if (age < 86400) return sprintf(" MISSING %u hours", int(age / 3600))
     return sprintf(" MISSING %u days", int(age / 86400))
 }
@@ -148,12 +155,16 @@ END {
     # asorti is a gawk extension and Raspberry Pi OS ships mawk.
     for (p = 1; p <= 32; p++) {
         if (!(p in seen)) continue
-        last = (n[p,"T"] > n[p,"R"] ? n[p,"T"] : n[p,"R"])
-        printf "%u %9s| %s %s %s|%s %s %s| %s %s %s|%s %s %s|%s\n", p, call[p],
-            rate(p,"T",2), rate(p,"T",hourw), rate(p,"T",last),
-            retry(p,"T",2), retry(p,"T",hourw), retry(p,"T",last),
-            rate(p,"R",2), rate(p,"R",hourw), rate(p,"R",last),
-            retry(p,"R",2), retry(p,"R",hourw), retry(p,"R",last),
+        # Each direction has its own retained depth: asking for the T window
+        # at the R count reports "no data" for whichever side has fewer
+        # samples, exactly where the longest window should be most complete.
+        lastT = n[p,"T"]; lastR_ = n[p,"R"]
+        printf "%u %9s| %s %s %s|%s %s %s| %s %s %s|%s %s %s|%s\n",
+            p, (p in call ? call[p] : "-"),
+            rate(p,"T",2), rate(p,"T",hourw), rate(p,"T",lastT),
+            retry(p,"T",2), retry(p,"T",hourw), retry(p,"T",lastT),
+            rate(p,"R",2), rate(p,"R",hourw), rate(p,"R",lastR_),
+            retry(p,"R",2), retry(p,"R",hourw), retry(p,"R",lastR_),
             missing(p)
     }
 }' | while IFS= read -r line; do say "$line"; done
