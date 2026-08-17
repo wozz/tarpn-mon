@@ -367,6 +367,27 @@ build_linktest() {
     fi
 }
 
+build_npa() {
+    log_step "Building tarpn-npa for $TARGET_ARCH..."
+
+    cd "$PROJECT_ROOT"
+
+    log_info "Running tarpn-npa tests..."
+    make test-npa
+
+    local make_target="build-npa-${TARGET_ARCH}"
+    log_info "Running: make $make_target"
+    make "$make_target"
+
+    local output_name="tarpn-npa.linux-${TARGET_ARCH}"
+    if [ -f "$BUILD_DIR/$output_name" ]; then
+        log_info "Built: $BUILD_DIR/$output_name ($(du -h "$BUILD_DIR/$output_name" | cut -f1))"
+    else
+        log_error "Build failed - binary not created"
+        exit 1
+    fi
+}
+
 # =============================================================================
 # Package deploy scripts
 # =============================================================================
@@ -420,13 +441,15 @@ create_manifest() {
         "tarpn_chat": "tarpn-chat.linux-${TARGET_ARCH}",
         "send_routes_via_cq": "send-routes-via-cq.linux-${TARGET_ARCH}",
         "linktest": "linktest.linux-${TARGET_ARCH}",
+        "tarpn_npa": "tarpn-npa.linux-${TARGET_ARCH}",
         "install_script": "scripts/install.sh"
     },
     "checksums": {
         "tarpn_mon": "$(file_checksum "$BUILD_DIR/tarpn-mon.linux-${TARGET_ARCH}")",
         "tarpn_chat": "$(file_checksum "$BUILD_DIR/tarpn-chat-${TARGET_ARCH}")",
         "send_routes_via_cq": "$(file_checksum "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}")",
-        "linktest": "$(file_checksum "$BUILD_DIR/linktest.linux-${TARGET_ARCH}")"
+        "linktest": "$(file_checksum "$BUILD_DIR/linktest.linux-${TARGET_ARCH}")",
+        "tarpn_npa": "$(file_checksum "$BUILD_DIR/tarpn-npa.linux-${TARGET_ARCH}")"
     }
 }
 EOF
@@ -475,6 +498,11 @@ upload_to_s3() {
     if [ -f "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}" ]; then
         log_info "Uploading send-routes-via-cq..."
         aws s3 cp "$BUILD_DIR/send-routes-via-cq.linux-${TARGET_ARCH}" "$s3_path/send-routes-via-cq.linux-${TARGET_ARCH}"
+    fi
+
+    if [ -f "$BUILD_DIR/tarpn-npa.linux-${TARGET_ARCH}" ]; then
+        log_info "Uploading tarpn-npa..."
+        aws s3 cp "$BUILD_DIR/tarpn-npa.linux-${TARGET_ARCH}" "$s3_path/tarpn-npa.linux-${TARGET_ARCH}"
     fi
 
     if [ -f "$BUILD_DIR/linktest.linux-${TARGET_ARCH}" ]; then
@@ -540,6 +568,7 @@ main() {
         build_tarpn_mon
         build_sendroutesviacq
         build_linktest
+        build_npa
     fi
 
     if [ "$BUILD_CHAT" = true ]; then

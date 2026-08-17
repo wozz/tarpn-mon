@@ -1,0 +1,32 @@
+#!/bin/bash
+# npa/postinstall - install the tarpn-npa binary.
+set -euo pipefail
+
+mod="$(module_dir npa)"
+run install -d -m 0755 "${mod}/bin"
+
+install_release_binary tarpn-npa "${mod}/bin/tarpn-npa"
+
+# This needs sysop rights on the telnet port to change routes, which it gets
+# from the USER line the generated config writes for the operator callsign.
+# A hand-edited bpq32.cfg that dropped the SYSOP flag would leave the node
+# answering the route commands with a password challenge instead.
+bpq_cfg="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)/bpq32.cfg"
+if [ -f "$bpq_cfg" ] && ! grep -qi '^USER=.*,SYSOP' "$bpq_cfg"; then
+    log_warn "no SYSOP telnet user found in ${bpq_cfg}"
+    log_dim "tarpn-npa needs one to lock routes; 'sudo tarpnctl apply' restores it"
+fi
+
+# The legacy stack runs the closed-source app for the same purpose. Both
+# locking the same routes is harmless but pointless, and the legacy one will
+# fight this one whenever node.conf and node.ini disagree.
+if [ -x /usr/local/sbin/neighbor_port_association.app ] \
+   && systemctl is-enabled --quiet neighbor_port_association.service 2>/dev/null; then
+    log_warn "the legacy neighbor_port_association service is still enabled"
+    log_dim "both will lock routes; disable the legacy one:"
+    log_dim "  sudo systemctl disable --now neighbor_port_association.service"
+fi
+
+log_info "Routes are re-checked every 10 minutes once the node is running"
+log_dim "check it by hand with:  sudo systemctl start tarpn-npa"
+log_dim "see what it would do:   ${mod}/bin/tarpn-npa --dry-run"

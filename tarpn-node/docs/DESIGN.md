@@ -311,6 +311,7 @@ records them in `link_stats_tarpnstat`. A standalone module would have to open
 a second monitor connection to see the same frames.
 
 **Neighbour port association** (`npa.sh`, `neighbor_port_association.app`).
+Reimplemented as the `npa` module (`tarpn-npa`), which is installed by default.
 A closed-source 32-bit binary, but not a stripped one. **A node does depend on
 it to route, and dropping it leaves the nodes table empty.**
 
@@ -353,6 +354,37 @@ reliably any particular TNC. NPA resolves it from what is actually heard.
 > is wrong. It is recorded here because a node updated on that assumption
 > silently stops learning nodes: neighbours are heard, `ROUTES` lists them
 > unlocked, and the nodes table stays empty.
+
+`tarpn-npa` does the same job in portable Go, on a 10-minute timer, and drops
+the last closed-source 32-bit dependency. Differences from the original:
+
+- **It scans every port, not just the configured ones.** A neighbour that has
+  moved onto a slot nothing was configured for is still found.
+- **It removes a lock that has gone stale**, but only once the neighbour has
+  been positively located on another port, so a neighbour that is merely quiet
+  keeps its route.
+- **It refuses to guess.** A callsign heard on more than one port is reported
+  and left alone; on point-to-point links that means something is wrong, and a
+  route locked to the wrong port is worse than no locked route.
+- **It does not send `frack` or `l4t1` per route.** The stock template
+  hardcoded `FRACK=9000` in every port block, so the per-neighbour value could
+  only be applied at runtime. This installation renders `PORT_x_FRACK` into the
+  port blocks directly, so it is already right before the engine starts.
+- **It does not send `C <port> !`.** Links come up on demand; keying a
+  transmitter to populate a table is airtime for nothing.
+
+`node.conf` therefore names *which* neighbours to expect, not which port each
+is on. The configured slot is used only to report a disagreement:
+
+```
+N2IRZ-2   heard on port 2, but node.conf puts it on port 1
+N2IRZ-2   locking on port 2 at quality 200
+```
+
+That disagreement is normal and not an error — `/dev/ttyACM*` numbering is
+assigned in enumeration order. It does mean the port `ID` labels and the
+per-port `FRACK` follow the config rather than reality, so a node whose ports
+have shifted is worth reconciling by hand.
 
 **`sendroutestocq`.** Replaced by the `routes` module, which runs the portable
 Go rewrite in `../sendroutesviacq/` on a systemd timer instead of from inside

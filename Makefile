@@ -14,6 +14,7 @@ SHELL := /bin/bash
 .PHONY: all build build-arm32 build-arm64 frontend clean run dev help \
        build-sendroutesviacq-arm32 build-sendroutesviacq-arm64 build-sendroutesviacq-amd64 \
        build-linktest-arm32 build-linktest-arm64 build-linktest-amd64 \
+       build-npa-arm32 build-npa-arm64 build-npa-amd64 test-npa \
        build-sendroutesviacq test-sendroutesviacq
 
 # Directories
@@ -21,6 +22,7 @@ ROOT_DIR := $(shell pwd)
 FRONTEND_DIR := $(ROOT_DIR)/tarpn-terminal
 SENDROUTESVIACQ_DIR := $(ROOT_DIR)/sendroutesviacq
 LINKTEST_DIR := $(ROOT_DIR)/linktest
+NPA_DIR := $(ROOT_DIR)/npa
 DIST_DIR := $(ROOT_DIR)/dist
 
 # Version (from git or fallback)
@@ -30,6 +32,7 @@ VERSION := $(shell git describe --tags 2>/dev/null || echo "dev")
 BINARY_NAME := tarpn-mon
 SENDROUTESVIACQ_NAME := send-routes-via-cq
 LINKTEST_NAME := linktest
+NPA_NAME := tarpn-npa
 
 # Frontend source files (for dependency tracking)
 FRONTEND_SOURCES := $(shell find $(FRONTEND_DIR)/src -type f 2>/dev/null)
@@ -55,7 +58,11 @@ help:
 	@echo "  make build-linktest-arm32           - Cross-compile linktest for Pi (32-bit)"
 	@echo "  make build-linktest-arm64           - Cross-compile linktest for Pi (64-bit)"
 	@echo "  make build-linktest-amd64           - Build linktest for x86_64"
+	@echo "  make build-npa-arm32                - Cross-compile tarpn-npa for Pi (32-bit)"
+	@echo "  make build-npa-arm64                - Cross-compile tarpn-npa for Pi (64-bit)"
+	@echo "  make build-npa-amd64                - Build tarpn-npa for x86_64"
 	@echo "  make test-sendroutesviacq           - Run send-routes-via-cq tests"
+	@echo "  make test-npa                       - Run tarpn-npa tests"
 	@echo ""
 	@echo "Version: $(VERSION)"
 
@@ -119,7 +126,8 @@ build-amd64: $(WEB_DIST)
 
 # Build all architectures
 build-all: build-arm32 build-arm64 build-amd64 build-sendroutesviacq-arm32 build-sendroutesviacq-arm64 build-sendroutesviacq-amd64 \
-       build-linktest-arm32 build-linktest-arm64 build-linktest-amd64
+       build-linktest-arm32 build-linktest-arm64 build-linktest-amd64 \
+       build-npa-arm32 build-npa-arm64 build-npa-amd64
 	@echo "All architectures built in $(DIST_DIR)/"
 	@ls -lh $(DIST_DIR)/
 
@@ -206,3 +214,32 @@ clean:
 # Also clean node_modules (deep clean)
 clean-all: clean
 	rm -rf $(FRONTEND_DIR)/node_modules
+
+# =============================================================================
+# tarpn-npa (separate Go module in npa/)
+# =============================================================================
+
+build-npa-arm32:
+	@echo "Building tarpn-npa for linux/arm32..."
+	@mkdir -p $(DIST_DIR)
+	cd $(NPA_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(NPA_NAME).linux-arm32 .
+	@ls -lh $(DIST_DIR)/$(NPA_NAME).linux-arm32
+
+build-npa-arm64:
+	@echo "Building tarpn-npa for linux/arm64..."
+	@mkdir -p $(DIST_DIR)
+	cd $(NPA_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(NPA_NAME).linux-arm64 .
+	@ls -lh $(DIST_DIR)/$(NPA_NAME).linux-arm64
+
+build-npa-amd64:
+	@echo "Building tarpn-npa for linux/amd64..."
+	@mkdir -p $(DIST_DIR)
+	cd $(NPA_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+		go build -ldflags="-s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(NPA_NAME).linux-amd64 .
+	@ls -lh $(DIST_DIR)/$(NPA_NAME).linux-amd64
+
+test-npa:
+	@echo "Testing tarpn-npa..."
+	cd $(NPA_DIR) && go test ./...

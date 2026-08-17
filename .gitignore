@@ -16,6 +16,7 @@ coverage/
 # `make build` writes to dist/, which is ignored separately below.
 /tarpn-mon
 /linktest/linktest
+/npa/npa
 
 # Expo/React Native build output (embedded at build time)
 web-dist/

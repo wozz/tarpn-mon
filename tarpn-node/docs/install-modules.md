@@ -47,6 +47,32 @@ understands.
 Leave it out if the legacy `statusmonitor.sh` is still running on the same
 machine, or the node will send the same thing twice.
 
+### `npa` — neighbour/port association
+Locks each neighbour's route to the port it is actually heard on, every ten
+minutes. **Without this the nodes table stays empty**: RF ports are generated
+with `IGNOREUNLOCKEDROUTES=1`, so LinBPQ ignores node broadcasts arriving on an
+unlocked route, and nothing in the config can lock them — `/dev/ttyACM*`
+numbering follows kernel enumeration order, so the neighbour named in slot A is
+not reliably on port 1.
+
+If your neighbours are heard but never appear in `NODES`, this is what is
+missing. Check with `ROUTES` at the node prompt: locked routes show a `!`.
+
+```bash
+sudo tarpnctl install npa
+sudo systemctl start tarpn-npa     # run it now instead of waiting
+```
+
+To see what it would do without changing anything:
+
+```bash
+/opt/tarpn/modules/npa/bin/tarpn-npa --dry-run
+```
+
+Leave it out only if the legacy `neighbor_port_association.service` is still
+running, or the two will fight over the same routes whenever `node.conf` and
+`node.ini` disagree.
+
 ## The extras
 
 These are installed by default too. Each is useful only in some setups, so

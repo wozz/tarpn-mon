@@ -1,0 +1,24 @@
+[Unit]
+Description=Re-check neighbour/port association every 10 minutes
+Documentation=https://github.com/wozz/tarpn-mon
+
+# Started and stopped with the node, as well as at boot.
+PartOf=tarpn.target
+
+[Timer]
+# A neighbour has to be heard before it can be associated with a port, so the
+# first run waits for links to come up and for at least one node broadcast.
+# LinBPQ sends those on the NODES interval, which the template sets to 15
+# minutes, but a neighbour transmitting anything at all is enough to appear in
+# the heard list.
+OnBootSec=3min
+OnUnitActiveSec=10min
+
+# Nothing is transmitted by this, so there is no airtime reason to stagger it.
+# A small delay still keeps it off the same instant as the routes broadcast.
+RandomizedDelaySec=30
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+WantedBy=tarpn.target

@@ -35,9 +35,11 @@ export TARPN_SELF_DIR
 #   tarpn-chat before tarpn-mon - so tarpn-mon seeds its chat feature enabled
 #   tarpn-mon before node-commands - node-commands only offers TRR when
 #                                tarpn-mon is there to supply the data
+#   linbpq before npa          - npa reads the neighbours out of the
+#                                node.conf that linbpq seeds
 #
 # `--modules core,linbpq` and friends still install a subset.
-DEFAULT_MODULES="core linbpq tarpn-chat tarpn-mon routes node-commands hostmode qtterm"
+DEFAULT_MODULES="core linbpq npa tarpn-chat tarpn-mon routes node-commands hostmode qtterm"
 SELECTED=""
 INSTALL_ALL=false
 UNINSTALL=false

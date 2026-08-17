@@ -126,7 +126,14 @@ NODE_COMMANDS=
 #
 # The ttyACM numbering is assigned by the kernel in enumeration order, so slot
 # A is not guaranteed to be any particular physical TNC. Which neighbour is
-# actually reachable on which port is resolved at runtime by the `npa` module.
+# actually reachable on which port is resolved at runtime by the `npa` module,
+# which locks each neighbour's route to the port it is really heard on. So the
+# list below is "these are my neighbours", not "this one is definitely on port
+# 1" - npa reports any disagreement and follows what it hears.
+#
+# Without npa installed the nodes table stays empty: RF ports are generated
+# with IGNOREUNLOCKEDROUTES=1, and LinBPQ ignores node broadcasts from an
+# unlocked route.
 #
 # Fill slots from A upwards with no gaps - a configured slot D with an empty
 # slot C would point port 4 at a device that does not exist.

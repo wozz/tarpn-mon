@@ -12,6 +12,7 @@ Replaces the original tarpn-mon Vue.js app with a universal React Native fronten
 | **tarpn-terminal** | React Native (Expo) | Universal frontend (Web, Android, iOS). Monitor screen, stats/charts, chat, BBS, node access, settings. |
 | **tarpn-chat** | Rust | Standalone NetROM chat server. Connects to LinBPQ via NetROM for peer-to-peer chat routing between nodes. |
 | **send-routes-via-cq** | Go | TARPNstat link quality broadcaster. Reads the routes table and sends bilateral link stats via CQ on each active port. Runs on a 15-minute systemd timer. |
+| **tarpn-npa** | Go | Neighbour/port association. Asks the node which callsigns it hears on each port and locks each neighbour's route to the port it is really on, without which LinBPQ ignores their node broadcasts. Runs on a 10-minute systemd timer. Replaces the closed-source 32-bit `neighbor_port_association.app`. |
 
 ## Architecture
 

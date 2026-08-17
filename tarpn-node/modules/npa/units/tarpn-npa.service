@@ -1,0 +1,34 @@
+[Unit]
+Description=Lock neighbour routes to the ports they are heard on
+Documentation=https://github.com/wozz/tarpn-mon
+
+# RF ports are generated with IGNOREUNLOCKEDROUTES=1, so LinBPQ discards a
+# neighbour's node broadcasts until that neighbour's route is locked. Nothing
+# in the config can lock them, because /dev/ttyACM* numbering follows kernel
+# enumeration order and the neighbour named in slot A is not reliably on port
+# 1. This asks the node what it has actually heard on each port and locks
+# accordingly. Replaces the closed-source 32-bit neighbor_port_association.app.
+After=tarpn-linbpq.service
+
+[Service]
+Type=oneshot
+User=@TARPN_USER@
+Group=@TARPN_GROUP@
+ExecStart=@TARPN_PREFIX@/modules/npa/bin/tarpn-npa --config @TARPN_ETC@/node.conf
+
+# The node engine may legitimately be down when the timer fires, and a
+# neighbour may legitimately not have been heard yet. Neither is worth
+# alerting on; the next run picks it up.
+SuccessExitStatus=0 1
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# Reads node.conf; writes nothing to disk itself. BPQNODES.dat is written by
+# the engine, in its own process, in response to the SAVENODES command.
+ReadOnlyPaths=@TARPN_ETC@
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tarpn-npa
