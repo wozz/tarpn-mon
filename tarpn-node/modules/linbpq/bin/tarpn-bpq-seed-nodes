@@ -1,0 +1,118 @@
+#!/bin/bash
+# tarpn-bpq-seed-nodes - declare the chat node as a NetROM destination.
+#
+# Run from tarpn-linbpq.service's ExecStartPre, before the engine starts.
+#
+# A locked ROUTE lets the chat node send. It does not make it reachable: LinBPQ
+# routes every L3 packet by a destination lookup and drops it when there is no
+# match, and an L4 circuit carries no return path, so a peer answering our CREQ
+# has nowhere to send the CACK. The chat callsign has to exist as a
+# *destination* and be advertised in our NODES broadcasts.
+#
+# It cannot be advertised by the chat node itself. LinBPQ only turns a NODES
+# broadcast into a destination from the AX.25 UI-frame path (PROCESSNODEMESSAGE
+# in L2Code.c); frames arriving over NetROM-over-TCP go to NETROMMSG, which has
+# no NODES case, so such a broadcast is routed as an ordinary packet addressed
+# to "NODES" and discarded.
+#
+# Left alone, LinBPQ creates the destination implicitly when the chat node
+# connects - with no alias and route quality 0. That is worse than useless: the
+# broadcast filter needs quality >= the port's MINQUAL and obscount >= OBSMIN,
+# so a quality-0 entry is silently excluded from every broadcast, and because
+# the entry exists, nothing can add it properly afterwards.
+#
+# Declaring it here wins that race. BPQNODES.dat is read during startup, after
+# the config has created the locked route the entry refers to, so the
+# destination is correct before the chat node ever connects. It then stays
+# correct: PROCROUTES will not reset an obscount with the locked bit set, and
+# will not overwrite a quality with zero.
+#
+#     NODE ADD <alias>:<call> <neighbour> <port> <qual> !
+#
+# The neighbour is the chat node itself on the telnet port, matching the route
+# it attaches on. The trailing "!" sets the obsolescence count to 255 instead of
+# OBSINIT, so it never ages out of the broadcasts - with OBSINIT=16 against
+# OBSMIN=15 an ordinary entry survives barely one interval.
+
+set -euo pipefail
+
+TARPN_PREFIX="${TARPN_PREFIX:-/opt/tarpn}"
+. "${TARPN_PREFIX}/lib/tarpn-common.sh"
+
+BPQ_HOME="$(conf_get "$TARPN_CONF" BPQ_HOME /var/lib/tarpn/bpq)"
+NODES_FILE="${BPQ_HOME}/BPQNODES.dat"
+CHAT_CONF="${TARPN_ETC}/tarpn-chat.toml"
+MARKER="; tarpn-chat destination - managed by tarpn-bpq-seed-nodes"
+
+# The telnet port the chat node attaches on, matching PORTNUM in the template.
+TELNET_PORT=32
+QUALITY=200
+
+provider="$(conf_get "$TARPN_NODE_CONF" CHAT_PROVIDER linbpq)"
+
+chat_call="$(conf_get "$TARPN_NODE_CONF" CHAT_CALL "")"
+if [ -z "$chat_call" ]; then
+    node_call="$(conf_get "$TARPN_NODE_CONF" NODE_CALL "")"
+    [ -n "$node_call" ] && chat_call="$(call_base "$node_call")-9"
+fi
+chat_call="$(call_upper "$chat_call")"
+
+# Rewrite the file without our managed entry, then add it back if it is wanted.
+# Only our own line is touched: everything else in here is LinBPQ's saved node
+# table, written by SAVENODES, and must survive untouched.
+strip_managed() {
+    [ -f "$NODES_FILE" ] || return 0
+    awk -v marker="$MARKER" -v call="$chat_call" '
+        $0 == marker { skip = 1; next }
+        skip && $1 == "NODE" && $2 == "ADD" { skip = 0; next }
+        { skip = 0; print }
+    ' "$NODES_FILE"
+}
+
+if [ "$provider" != tarpn-chat ] || [ -z "$chat_call" ] || ! is_valid_call "$chat_call"; then
+    # Chat is served by LinBPQ itself, or there is no chat callsign. Remove any
+    # entry we left behind so a stale destination is not advertised.
+    if [ -f "$NODES_FILE" ] && grep -qF "$MARKER" "$NODES_FILE"; then
+        tmp="$(mktemp "${NODES_FILE}.XXXXXX")"
+        strip_managed > "$tmp"
+        chmod --reference="$NODES_FILE" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
+        chown --reference="$NODES_FILE" "$tmp" 2>/dev/null || true
+        mv "$tmp" "$NODES_FILE"
+        log_info "Removed the chat destination from $(basename "$NODES_FILE")"
+    fi
+    exit 0
+fi
+
+# The alias is what tarpn-chat announces itself as, so take it from that config
+# rather than deriving it a second time and risking a mismatch.
+alias=""
+if [ -f "$CHAT_CONF" ]; then
+    alias="$(grep -m1 '^[[:space:]]*alias[[:space:]]*=' "$CHAT_CONF" 2>/dev/null | cut -d'"' -f2 || true)"
+fi
+if [ -z "$alias" ]; then
+    alias="$(chat_alias "$chat_call")"
+fi
+alias="$(call_upper "$alias")"
+
+user="$(resolve_tarpn_user)"
+group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+
+entry="NODE ADD ${alias}:${chat_call} ${chat_call} ${TELNET_PORT} ${QUALITY} !"
+
+# Already exactly right? Then leave the file's mtime alone.
+if [ -f "$NODES_FILE" ] && grep -qxF "$entry" "$NODES_FILE"; then
+    exit 0
+fi
+
+run install -d -m 0755 -o "$user" -g "$group" "$BPQ_HOME"
+
+tmp="$(mktemp "${NODES_FILE}.XXXXXX")"
+{
+    strip_managed
+    printf '%s\n%s\n' "$MARKER" "$entry"
+} > "$tmp"
+chmod 0644 "$tmp"
+chown "$user:$group" "$tmp" 2>/dev/null || true
+mv "$tmp" "$NODES_FILE"
+
+log_info "Declared chat destination ${alias}:${chat_call} in $(basename "$NODES_FILE")"

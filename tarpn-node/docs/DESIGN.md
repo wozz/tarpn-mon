@@ -244,38 +244,69 @@ if (FindDestination(L3MSG->L3DEST, &DEST) == 0)
 }
 ```
 
-The L4 circuit is end to end and holds no routing state, so this applies to
+The L4 circuit is end to end and holds no routing state, so this applies in
 both directions: a peer answering our `CREQ` has nowhere to send the `CACK`.
-Outbound calls fail for the same reason inbound ones do — which is easy to
-miss, because dialling out to a node still running the legacy stack works
-(that node already has a destination for us from before).
+Outbound calls fail for the same reason inbound ones do — easy to miss, because
+calling a node still running the legacy stack works, since that node already
+has a destination for us from before.
 
-**A NODES broadcast from the chat node does not work, and must not be added
-back.** `PROCESSNODEMESSAGE`, which turns a broadcast into a destination, is
-only reached from the AX.25 UI-frame path in `L2Code.c` (and `VARA.c`). Frames
-arriving over NetROM-over-TCP go to `NETROMMSG` in `L4Code.c`, which handles
-the PID, the neighbour record, INP3 RIFs, then L4/L3 routing — there is no
-NODES case. A broadcast sent that way is treated as an ordinary L3 packet
-addressed to `NODES`, fails the destination lookup, and is discarded.
+**The chat node cannot advertise itself.** `PROCESSNODEMESSAGE`, which turns a
+NODES broadcast into a destination, is only reached from the AX.25 UI-frame
+path in `L2Code.c` (and `VARA.c`). Frames arriving over NetROM-over-TCP go to
+`NETROMMSG` in `L4Code.c`, which handles the PID, the neighbour record, INP3
+RIFs, then L4/L3 routing — there is no NODES case. A broadcast sent that way is
+routed as an ordinary L3 packet addressed to `NODES`, fails the destination
+lookup, and is discarded.
 
-So the destination is registered directly, by the `npa` module, over the sysop
-telnet session it already holds:
+Worse, doing nothing is not neutral. When the chat node connects, LinBPQ
+creates the destination implicitly, **with no alias and route quality 0**. The
+broadcast filter is
+
+```c
+DEST->NRROUTE[0].ROUT_QUALITY >= TXMINQUAL &&    // the port's MINQUAL
+DEST->NRROUTE[0].ROUT_OBSCOUNT >= OBSMIN
+```
+
+so a quality-0 entry is silently excluded from every broadcast — and because
+the entry now exists, `NODES ADD` refuses to touch it. On a live node this
+showed up as `WA2M-9` appearing in `NODES` with no alias, and
+`NODES WA2M-9` reporting `> 0 11 32 WA2M-9`: quality 0, obscount 11, both
+below the thresholds.
+
+So the destination is **declared**, not repaired. `tarpn-bpq-seed-nodes` runs
+from the engine's `ExecStartPre` and writes one line into `BPQNODES.dat`:
 
 ```
-NODES ADD <alias>:<call> 200 <call> 32 !
+NODE ADD <alias>:<call> <call> 32 200 !
 ```
 
 The neighbour is the chat node itself on the telnet port, matching the locked
-route it attached on. The trailing `!` is what makes it stick: it sets the
-obsolescence count to 255 instead of `OBSINIT`, and with `OBSINIT=16` against
-`OBSMIN=15` an ordinary entry drops out of the broadcasts after a single
-interval. LinBPQ refuses to add a destination twice, so re-running is a no-op,
-and npa re-registers by itself after the engine restarts — which is when the
-destination table is lost.
+route it attaches on. The trailing `!` sets the obsolescence count to 255
+instead of `OBSINIT`; with `OBSINIT=16` against `OBSMIN=15` an ordinary entry
+drops out of the broadcasts after a single interval.
 
-The legacy stack did the same job by writing a `NODE ADD` line into
-`BPQNODES.dat`. That only takes effect at startup and is rewritten by
-`SAVENODES`, so it is not used here.
+Declaring it wins the race, and that is the point of doing it this way rather
+than fixing it up at runtime. `BPQNODES.dat` is read during startup, after the
+config has created the route the entry refers to, so the destination is already
+correct when the chat node connects. It then stays correct, because
+`PROCROUTES` will not reset an obscount that has the locked bit set and will
+not overwrite a quality with zero:
+
+```c
+if ((DEST->NRROUTE[Index].ROUT_OBSCOUNT & 0x80) == 0)
+    DEST->NRROUTE[Index].ROUT_OBSCOUNT = OBSINIT;
+if (Qual)
+    DEST->NRROUTE[Index].ROUT_QUALITY = Qual;   // IF ZERO, SKIP UPDATE
+```
+
+Only that one line is managed. Everything else in `BPQNODES.dat` is LinBPQ's
+saved node table, written by `SAVENODES`, and is preserved — including when
+`SAVENODES` has rewritten the file without our entry, which is why the seeding
+runs on every start rather than once at install.
+
+Note the file and the sysop command take their arguments in different orders:
+the file is `ALIAS:CALL NEIGHBOUR PORT QUAL`, the command is
+`ALIAS:CALL QUAL NEIGHBOUR PORT`.
 
 ### Attaching over NETROMPORT takes two directives, not one
 

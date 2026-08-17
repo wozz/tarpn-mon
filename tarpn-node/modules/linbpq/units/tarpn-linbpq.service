@@ -26,6 +26,10 @@ WorkingDirectory=@BPQ_HOME@
 # service, leaving the previous bpq32.cfg untouched. The legacy script
 # rebooted the Pi in this situation.
 ExecStartPre=@TARPN_PREFIX@/modules/linbpq/bin/tarpn-bpq-genconfig
+# Declares the chat node as a NetROM destination in BPQNODES.dat, which is read
+# during startup. Doing it here rather than at runtime means the destination is
+# correct before tarpn-chat connects and creates a useless one itself.
+ExecStartPre=@TARPN_PREFIX@/modules/linbpq/bin/tarpn-bpq-seed-nodes
 ExecStart=@BPQ_HOME@/linbpq
 
 Restart=on-failure
