@@ -311,21 +311,48 @@ records them in `link_stats_tarpnstat`. A standalone module would have to open
 a second monitor connection to see the same frames.
 
 **Neighbour port association** (`npa.sh`, `neighbor_port_association.app`).
-Also a closed-source 32-bit binary. Reading `npa.sh`, the app's outputs are
-status files under `/tmp/tarpn/tnpa/` consumed by TARPN Home and the
-link-quality reporting scripts — it writes no routes into LinBPQ. On that
-reading it is an information source rather than something the node depends on
-to route.
+A closed-source 32-bit binary, but not a stripped one. **A node does depend on
+it to route, and dropping it leaves the nodes table empty.**
 
-The association itself is recoverable without it: every `[TARPNstat V2]`
-broadcast is recorded against the port it was heard on, so `link_stats_tarpnstat`
-pairs each neighbour callsign with a port. That works for stock TARPN
-neighbours too, since they all broadcast it.
+Every RF port is generated with `IGNOREUNLOCKEDROUTES=1`, and `L3Code.c`
+discards a NODES broadcast whose route is not locked:
 
-> This conclusion comes from reading the wrapper script, not the closed-source
-> binary. If a node turns out to depend on NPA for something not visible
-> there, it can be added back as an optional module that wraps the legacy
-> binary on 32-bit systems.
+```c
+if ((ROUTE->NEIGHBOUR_FLAG) == 0)	 // not a LOCKED ROUTE
+    if (PORT->IgnoreUnlocked)
+        return;
+```
+
+Nothing in the stock config locks the NinoTNC ports — the `ROUTES:` section
+only covers the two fixed-device serial ports — and `tarpn_background.sh`
+deletes `BPQNODES.dat` on every start ("the ports may be in a different order
+when we start up"), so nothing is restored either. NPA is what locks them,
+at runtime, once it knows which neighbour is on which port.
+
+Disassembly of the 2021 build (`nm` shows full symbols) gives the mechanism:
+
+| Function | What it does |
+|---|---|
+| `RTS_GetTelnetConnectionToNode` | connects to the telnet port, `8010` |
+| `LogIntoTelnetAndGetNeighborsHeardLists` | logs in, runs `MHEARD` per port |
+| `CmpCallsignWithNodeInitNeighbor_SetAssigned` | matches heard calls against `neighborA..J` in `node.ini` |
+| `FillInNodePortCallsignAndRouteLockString` | builds `r <call> <port> 200 !` by `strcpy`/`strcat` |
+| `LogIntoTelnetAndSetRouteAndFrack` | sends `password`, the route-lock, `frack`, `l4t1`, then `C <port> !` |
+
+The string literals confirm it: `"r "`, `" 200 !"`, `"frack "`, `"l4t1"`,
+`"C %u !"`, and log lines `"Prepare Route Lock command>>%s<<"` and
+`"wrote route + lock command to port(+1)#%u"`.
+
+The reason the association cannot simply be read from config is that
+`/dev/ttyACM*` numbering follows kernel enumeration order, so slot A is not
+reliably any particular TNC. NPA resolves it from what is actually heard.
+
+> Previous revisions of this document claimed NPA "writes no routes into
+> LinBPQ" and was "an information source rather than something the node
+> depends on to route". That was inferred from the wrapper script alone and
+> is wrong. It is recorded here because a node updated on that assumption
+> silently stops learning nodes: neighbours are heard, `ROUTES` lists them
+> unlocked, and the nodes table stays empty.
 
 **`sendroutestocq`.** Replaced by the `routes` module, which runs the portable
 Go rewrite in `../sendroutesviacq/` on a systemd timer instead of from inside

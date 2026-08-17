@@ -203,11 +203,25 @@ sudo ./install.sh --purge              # removes those too
 
 ## Things to watch
 
+- **Locked routes.** RF ports are generated with `IGNOREUNLOCKEDROUTES=1`, so
+  a neighbour's node broadcasts are ignored until its route is locked. On the
+  legacy stack the closed-source NPA app did this at runtime; this
+  installation does not ship it, so **after a migration the nodes table stays
+  empty** even though the neighbours are heard. Check with `ROUTES` at the
+  node prompt — locked routes show a `!`. To lock them by hand, as sysop:
+
+  ```
+  ROUTES <neighbour> <port> 200 !
+  SAVENODES
+  ```
+
+  `SAVENODES` writes `BPQNODES.dat`, which this installation (unlike the
+  legacy one) never deletes, so the locks survive restarts. They are tied to
+  port numbers, so re-check them if the `ttyACM` order changes.
 - **Node data.** `BPQNODES.dat` lives in `BPQ_HOME`, which is now
-  `/var/lib/tarpn/bpq`, so the new node starts without learned routes and
-  relearns them. Copy the file across first if you would rather not wait.
-  Note that `tarpn_background.sh` deleted this file on every legacy start, so
-  it may not have been carrying much.
+  `/var/lib/tarpn/bpq`, so the new node starts without it. Copying the old
+  one across does not help: `tarpn_background.sh` deleted it on every legacy
+  start, so there is nothing accumulated to bring.
 - **The `pi` user.** `TARPN_USER` defaults to `pi` when that account exists.
   On an image without it, set `TARPN_USER` in `/etc/tarpn/tarpn.conf` and make
   sure the account is in the `dialout` group.
