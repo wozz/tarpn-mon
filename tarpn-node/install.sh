@@ -74,6 +74,42 @@ banner() {
 # means two things starting linbpq, two things broadcasting TARPNstat, and the
 # legacy update.sh overwriting scripts underneath us.
 
+# The previous generation of this project - deploy/install.sh, which dropped
+# tarpn-mon and tarpn-chat into /opt/tarpn-mon and /opt/tarpn-chat - is a
+# different problem from the stock TARPN stack, and --alongside does not help.
+#
+# Two of its units have the same names as ours, so installing over it silently
+# takes them over while leaving the rest of it running: send-routes-via-cq
+# would broadcast link stats alongside our routes module, and
+# tarpn-chat-config.path would go on re-patching bpq32.cfg.
+#
+# Order matters, which is why this refuses rather than warns. Its uninstaller
+# removes tarpn-mon.service and tarpn-chat.service by name, so running it
+# *after* installing here would delete units that by then are ours.
+check_old_overlay() {
+    local found=()
+    local p
+    for p in /opt/tarpn-mon/.version /opt/tarpn-chat/.version \
+             "${TARPN_UNIT_DIR}/send-routes-via-cq.timer" \
+             "${TARPN_UNIT_DIR}/tarpn-chat-config.path"; do
+        [ -e "$p" ] && found+=("$p")
+    done
+    [ ${#found[@]} -eq 0 ] && return 0
+
+    log_err "an older tarpn-mon/tarpn-chat installation is present:"
+    for p in "${found[@]}"; do log_dim "$p"; done
+    echo
+    log_dim "It has to be removed first - not because it conflicts on disk, but"
+    log_dim "because its uninstaller deletes tarpn-mon.service and"
+    log_dim "tarpn-chat.service by name, which are the same names this uses."
+    log_dim "Removing it afterwards would take this installation's units with it."
+    echo
+    log_dim "From a checkout of this repository:"
+    log_dim "  sudo ./deploy/install.sh --uninstall"
+    log_dim "then re-run this installer. Your bpq32.cfg and node.ini are untouched."
+    exit 1
+}
+
 check_legacy() {
     local found=()
     local u
@@ -205,6 +241,7 @@ case "$ARCH" in
 esac
 log_info "Architecture: ${ARCH}"
 
+check_old_overlay
 check_legacy
 stage_tree
 

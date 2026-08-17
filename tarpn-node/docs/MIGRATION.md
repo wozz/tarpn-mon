@@ -7,6 +7,33 @@ Nothing the stock installer created is modified, patched or removed. Until you
 disable the legacy services in step 4, nothing has changed and you can walk
 away at any point.
 
+## First: are you running the older tarpn-mon/tarpn-chat overlay?
+
+If you ever installed this project's earlier `deploy/install.sh` — the one run
+as `curl … /latest/scripts/install.sh | sudo bash`, which puts things in
+`/opt/tarpn-mon` and `/opt/tarpn-chat` — remove it **before** installing, and
+before anything else in this guide:
+
+```bash
+sudo ./deploy/install.sh --uninstall
+```
+
+Check with `ls /opt/tarpn-mon /opt/tarpn-chat`, or
+`systemctl list-units 'send-routes-via-cq*' 'tarpn-chat-config*'`.
+
+The order is not optional. That overlay uses the same unit names for
+`tarpn-mon.service` and `tarpn-chat.service` as this does, so its uninstaller
+deletes them by name — run it afterwards and it takes this installation's
+units with it. Installing over it without removing it is no better: the two
+shared units get quietly taken over while `send-routes-via-cq.timer` keeps
+broadcasting link stats alongside the `routes` module, and
+`tarpn-chat-config.path` keeps re-patching `bpq32.cfg`.
+
+`install.sh` detects this and stops, so you cannot get it wrong by accident.
+Your `bpq32.cfg` and `node.ini` are not touched by the uninstall.
+
+Nothing below is affected by whether you had that overlay.
+
 ## The short version
 
 ```bash
