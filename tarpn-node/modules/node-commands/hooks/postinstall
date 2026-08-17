@@ -70,3 +70,41 @@ if [ -f "$TARPN_NODE_CONF" ]; then
 else
     log_warn "no ${TARPN_NODE_CONF} yet; set NODE_COMMANDS=${available} once the node is configured"
 fi
+
+# --- the legacy stack serves these same ports from inetd ---------------------
+# TARPN registers its node commands in /etc/inetd.conf:
+#
+#   trr     stream  tcp  nowait  root  /usr/local/sbin/trr.sh
+#
+# and runs them under inetd or xinetd, which is a system service - not one of
+# the tarpn* units the installer offers to disable, so it survives a migration
+# and keeps the CMDPORTs bound. Our socket units then cannot bind them, LinBPQ
+# reaches the legacy handler instead, and the node prompt answers with the old
+# TRR reading link-quality files that nothing maintains any more: every figure
+# comes out "nan" and "MISSING n hours".
+#
+# Not fixed automatically: /etc/inetd.conf belongs to the legacy install, and
+# this installer does not edit files it does not own.
+_nc_inetd_conflict=""
+for _nc_f in /etc/inetd.conf /etc/xinetd.conf; do
+    [ -f "$_nc_f" ] || continue
+    if grep -qE '^[[:space:]]*(trr|tinfo|linux|linktest|tchat)[[:space:]]+stream' "$_nc_f" 2>/dev/null; then
+        _nc_inetd_conflict="$_nc_f"
+        break
+    fi
+done
+if [ -z "$_nc_inetd_conflict" ] && [ -d /etc/xinetd.d ]; then
+    for _nc_f in /etc/xinetd.d/trr /etc/xinetd.d/tinfo /etc/xinetd.d/linux /etc/xinetd.d/linktest; do
+        [ -f "$_nc_f" ] && { _nc_inetd_conflict="$_nc_f"; break; }
+    done
+fi
+
+if [ -n "$_nc_inetd_conflict" ]; then
+    log_warn "the legacy node commands are still registered in ${_nc_inetd_conflict}"
+    log_dim "inetd holds ports 63000-63004, so these units cannot bind them and"
+    log_dim "the node prompt keeps answering with the old TRR - which reports"
+    log_dim "'nan' and 'MISSING n hours' because nothing feeds its data now."
+    log_dim "comment those lines out, then:"
+    log_dim "  sudo systemctl restart inetd    # or xinetd"
+    log_dim "  sudo systemctl start tarpn-cmd-trr.socket tarpn-cmd-tinfo.socket"
+fi

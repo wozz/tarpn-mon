@@ -339,6 +339,40 @@ cmd_doctor() {
         fi
     fi
 
+    # --- node commands: who actually owns the CMDPORTs --------------------
+    # LinBPQ connects to these when someone runs TRR or TINFO at the node
+    # prompt. The legacy stack registers the same commands in inetd.conf, and
+    # inetd is a system service that survives disabling the tarpn* units - so
+    # it keeps the ports bound, our sockets fail to bind, and the node answers
+    # with the old TRR, whose data source no longer exists ("nan",
+    # "MISSING n hours"). Worth naming explicitly, because from the node prompt
+    # it looks like a working command returning bad numbers.
+    if module_is_installed node-commands; then
+        printf '\n%sNode commands%s\n' "$_C_BLU" "$_C_OFF"
+        local sock port owner
+        for sock in tarpn-cmd-trr tarpn-cmd-tinfo tarpn-cmd-linux tarpn-cmd-linktest; do
+            unit_exists "${sock}.socket" || continue
+            port="$(sed -n 's/^ListenStream=.*:\([0-9]*\)$/\1/p' \
+                    "${TARPN_UNIT_DIR}/${sock}.socket" 2>/dev/null | head -1)"
+            if unit_is_active "${sock}.socket"; then
+                ok "${sock}.socket listening on ${port:-?}"
+                continue
+            fi
+            owner=""
+            if command -v ss >/dev/null 2>&1 && [ -n "$port" ]; then
+                owner="$(ss -lntp 2>/dev/null | awk -v p=":${port}\$" '$4 ~ p {print; exit}')"
+            fi
+            if [ -n "$owner" ]; then
+                bad "${sock}.socket is not listening; port ${port} is already taken"
+                hint "something else answers this command at the node prompt"
+                hint "if it is inetd, comment the legacy entry out of /etc/inetd.conf"
+            else
+                warn "${sock}.socket is not listening"
+                hint "sudo systemctl start ${sock}.socket"
+            fi
+        done
+    fi
+
     # --- verdict ----------------------------------------------------------
     echo
     if [ "$DOCTOR_FAIL" -gt 0 ]; then
