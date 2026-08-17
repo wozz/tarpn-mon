@@ -72,7 +72,22 @@ WEB_DIST_DIR := $(ROOT_DIR)/web-dist
 # Build frontend (incremental - only if sources changed)
 $(FRONTEND_DIST): $(FRONTEND_SOURCES) $(FRONTEND_DIR)/package.json
 	@echo "Building frontend..."
-	cd $(FRONTEND_DIR) && npm install --silent && npx expo export -p web --output-dir dist
+	cd $(FRONTEND_DIR) && npm install --silent
+# The charts are victory-native on top of @shopify/react-native-skia, and on web
+# Skia loads CanvasKit as WebAssembly at runtime. SkiaCompat.js asks for it at
+# the site root (locateFile returns "/canvaskit.wasm"), but nothing puts it
+# there: `expo export` does not know about it, and Skia expects you to run its
+# own setup-skia-web script, which copies the file into public/. Without this
+# the request 404s and the stats page shows "Charts unavailable".
+#
+# Copied from the canvaskit-wasm that react-native-skia itself depends on, so
+# the binary always matches the loader. The full build is the one Skia's script
+# uses. public/ is copied to the root of the export by expo, which also makes
+# `expo start --web` work.
+	@mkdir -p $(FRONTEND_DIR)/public
+	@cp $(FRONTEND_DIR)/node_modules/canvaskit-wasm/bin/full/canvaskit.wasm \
+		$(FRONTEND_DIR)/public/canvaskit.wasm
+	cd $(FRONTEND_DIR) && npx expo export -p web --output-dir dist
 	@touch $(FRONTEND_DIST)
 
 # web-dist is what main.go embeds via //go:embed all:web-dist. It gets its own
