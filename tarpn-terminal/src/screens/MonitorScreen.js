@@ -1,4 +1,4 @@
-import React, { useContext, useState, useRef, memo, useCallback } from 'react';
+import React, { useContext, useState, useRef, memo, useCallback, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { AppContext } from '../context/AppContext';
@@ -79,6 +79,19 @@ const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
     );
 });
 
+// Standard ANSI/terminal-like colours, indexed by port. Module scope so the
+// array is not rebuilt on every call - getPortColor runs once per visible row.
+const PORT_COLORS = [
+    '#ef4444', // Red (Port 0/6)
+    '#22c55e', // Green (Port 1/7)
+    '#eab308', // Yellow (Port 2/8)
+    '#3b82f6', // Blue (Port 3/9)
+    '#d946ef', // Magenta (Port 4/10)
+    '#06b6d4', // Cyan (Port 5/11)
+];
+
+const getPortColor = (p) => PORT_COLORS[parseInt(p) % PORT_COLORS.length] || '#ccc';
+
 export default function MonitorScreen() {
     const {
         logMessages,
@@ -128,28 +141,23 @@ export default function MonitorScreen() {
     }, [settings.autoScroll, setSettings, hasMoreHistory, isLoadingMore, loadMoreHistory]);
 
     // Filter Logic
-    const filteredMessages = logMessages.filter(msg => {
+    //
+    // Memoised because this walks the whole log, and the context value it comes
+    // from is rebuilt on every batch - so without this it re-filtered several
+    // times a second whether or not anything relevant had changed. visiblePorts
+    // becomes a Set so the per-message lookup is constant rather than a scan of
+    // every visible port.
+    const visiblePortSet = useMemo(() => new Set(visiblePorts), [visiblePorts]);
+
+    const filteredMessages = useMemo(() => logMessages.filter(msg => {
         if (settings.hideUSBRoutes && msg.route === "TNC>USB") return false;
-        if (msg.port && !visiblePorts.includes(msg.port)) return false;
+        if (msg.port && !visiblePortSet.has(msg.port)) return false;
         return true;
-    });
+    }), [logMessages, settings.hideUSBRoutes, visiblePortSet]);
 
-    const getPortColor = (p) => {
-        // Standard ANSI/Terminal-like colors for ports
-        const colors = [
-            '#ef4444', // Red (Port 0/6)
-            '#22c55e', // Green (Port 1/7)
-            '#eab308', // Yellow (Port 2/8)
-            '#3b82f6', // Blue (Port 3/9)
-            '#d946ef', // Magenta (Port 4/10)
-            '#06b6d4'  // Cyan (Port 5/11)
-        ];
-        return colors[parseInt(p) % colors.length] || '#ccc';
-    };
-
-    const renderLogItem = ({ item }) => (
+    const renderLogItem = useCallback(({ item }) => (
         <LogRow item={item} onPress={setSelectedMessage} getPortColor={getPortColor} compact={settings.compactLayout} />
-    );
+    ), [settings.compactLayout]);
 
     return (
         <View style={styles.container}>

@@ -5,6 +5,7 @@ import { htmlDecode, parseAX25Message } from '../utils/ax25Utils';
 import { parseMessageTimestamp, getMinuteKey } from '../utils/timeUtils';
 import {
   BATCH_INTERVAL_MS,
+  MAX_LOG_MESSAGES,
   RECONNECT_DELAY_MS,
   INITIAL_MESSAGE_LIMIT,
   LOAD_MORE_LIMIT,
@@ -565,18 +566,31 @@ export const AppProvider = ({ children }) => {
             // Update Log State
             setLogMessages(prev => {
                 // Check if these are older messages (load_before) or new ones
-                // by comparing sequence numbers
+                // by comparing sequence numbers.
+                //
+                // Both arrays are already in ascending sequence order - this
+                // reducer is the only thing that builds them, and it either
+                // appends newer or prepends older - so the extremes are the end
+                // elements. The previous Math.min(...prev.map(...)) walked and
+                // copied the whole log every 200ms, which grew without bound
+                // along with it, and spreading a large array into Math.min can
+                // overflow the call stack outright.
                 if (prev.length > 0 && processedLogs.length > 0) {
-                    const prevMinSeq = Math.min(...prev.map(m => m.seq));
-                    const newMaxSeq = Math.max(...processedLogs.map(m => m.seq));
+                    const prevMinSeq = prev[0].seq;
+                    const newMaxSeq = processedLogs[processedLogs.length - 1].seq;
 
                     if (newMaxSeq < prevMinSeq) {
-                        // These are older messages, prepend them
+                        // These are older messages, prepend them. Not trimmed:
+                        // the operator asked for this history by scrolling back.
                         return [...processedLogs, ...prev];
                     }
                 }
-                // Normal case: append new messages
-                return [...prev, ...processedLogs];
+                // Normal case: append new messages, dropping the oldest so a
+                // page left open does not accumulate for ever.
+                const next = [...prev, ...processedLogs];
+                return next.length > MAX_LOG_MESSAGES
+                    ? next.slice(next.length - MAX_LOG_MESSAGES)
+                    : next;
             });
 
             // Check if we've loaded all available history

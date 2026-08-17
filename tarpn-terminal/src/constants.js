@@ -10,6 +10,14 @@ export const INPUT_REFOCUS_DELAY_MS = 50;
 // Message batching and processing
 export const BATCH_INTERVAL_MS = 200; // Process message queues every 200ms
 
+// Most live messages kept in memory on the monitor screen. The backend serves
+// at most `-buffer-size` (5000) of history, so holding more than that client
+// side buys nothing and grows without limit on a page left open for days -
+// which shows up as the browser reporting high energy use and eventually
+// discarding the tab. Older messages are dropped as new ones arrive; history
+// pulled in deliberately by scrolling back is not affected.
+export const MAX_LOG_MESSAGES = 5000;
+
 // Pagination settings
 export const INITIAL_MESSAGE_LIMIT = 1000; // Monitor screen initial load
 export const CHAT_MESSAGE_LIMIT = 200; // Chat screen initial/pagination load
