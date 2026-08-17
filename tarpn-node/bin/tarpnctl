@@ -105,6 +105,13 @@ cmd_status() {
     for name in $(module_list_available); do
         module_is_installed "$name" || continue
         printf '  %-14s' "$name"
+        # hostmode and qtterm own no services - they install a program a person
+        # runs. Without this the line just trails off blank, which reads as
+        # something being broken.
+        if [ -z "$(module_enable_units "$name")" ]; then
+            printf ' %sinstalled (no service)%s\n' "$_C_DIM" "$_C_OFF"
+            continue
+        fi
         for unit in $(module_enable_units "$name"); do
             if unit_is_active "$unit"; then
                 printf ' %s%s active%s' "$_C_GRN" "$unit" "$_C_OFF"

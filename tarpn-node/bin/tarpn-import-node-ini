@@ -43,6 +43,42 @@ TMP="$(mktemp "${TMPDIR:-/tmp}/node.conf.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
 cp "$EXAMPLE" "$TMP"
 
+# Everything this import derives from node.ini. Any other key already in an
+# existing node.conf is carried over below.
+IMPORTED_KEYS="NODE_CALL NODE_NAME OP_CALL SYSOP_PASSWORD LATLON CTEXT
+INFO1 INFO2 INFO3 INFO4 INFO5 INFO6 INFO7 INFO8 BBS_CALL CHAT_CALL
+LEGACY_TARPN_APPS HOST_MODE"
+for _l in A B C D E F G H I J; do
+    IMPORTED_KEYS="${IMPORTED_KEYS} PORT_${_l}_NEIGHBOR PORT_${_l}_FRACK"
+done
+for _n in 11 12; do
+    IMPORTED_KEYS="${IMPORTED_KEYS} PORT_${_n}_ENABLED PORT_${_n}_DEV PORT_${_n}_SPEED
+PORT_${_n}_TXDELAY PORT_${_n}_FRACK PORT_${_n}_NEIGHBOR PORT_${_n}_KISS_PARAMS"
+done
+
+# Keep anything an existing node.conf already says that this import does not
+# supply. Installing a module writes its own settings in here - tarpn-chat
+# sets CHAT_PROVIDER, node-commands sets NODE_COMMANDS - and rebuilding the
+# file from the shipped example silently reverted them, which left chat
+# pointing at a node that was still running LinBPQ's own.
+if [ -f "$TARPN_NODE_CONF" ]; then
+    _carried=""
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        case "$_line" in ''|'#'*) continue ;; esac
+        case "$_line" in *=*) : ;; *) continue ;; esac
+        _key="${_line%%=*}"
+        _key="$(printf '%s' "$_key" | tr -d '[:space:]')"
+        [ -n "$_key" ] || continue
+        case " $IMPORTED_KEYS " in *" $_key "*) continue ;; esac
+        _val="$(conf_get "$TARPN_NODE_CONF" "$_key" "")"
+        [ -n "$_val" ] || continue
+        [ "$_val" = "$(conf_get "$EXAMPLE" "$_key" "")" ] && continue
+        conf_set "$TMP" "$_key" "$_val"
+        _carried="${_carried} ${_key}"
+    done < "$TARPN_NODE_CONF"
+    [ -n "$_carried" ] && log_dim "keeping existing:${_carried}"
+fi
+
 set_if() {
     local key="$1" value="$2"
     [ -n "$value" ] || return 0

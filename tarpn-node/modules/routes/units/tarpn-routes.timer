@@ -2,6 +2,9 @@
 Description=Broadcast TARPNstat link quality every 15 minutes
 Documentation=https://github.com/wozz/tarpn-mon
 
+# Started and stopped with the node, as well as at boot.
+PartOf=tarpn.target
+
 [Timer]
 # Give the node engine time to come up and links time to establish before the
 # first broadcast.
@@ -14,3 +17,4 @@ Persistent=false
 
 [Install]
 WantedBy=timers.target
+WantedBy=tarpn.target
