@@ -1128,3 +1128,51 @@ mod tests {
         assert!(parsed.compression);
     }
 }
+
+#[cfg(test)]
+mod self_announce_tests {
+    use super::*;
+
+    // What the server sends every 10 minutes so LinBPQ has a destination for us.
+    //
+    // LinBPQ adds the sender of a NODES broadcast to its destination list and
+    // takes the alias from the fixed 6 bytes after the signature (L3Code.c,
+    // "CHECK LINK IS IN DEST LIST" / "ALWAYS UPDATE ALIAS"). It reads route
+    // entries only from what follows, using a signed `while (Msglen >= 21)`, so
+    // carrying none is safe - and correct, since the sender is implicit and
+    // listing ourselves would be a destination reachable via ourselves.
+    #[test]
+    fn self_announcement_wire_format() {
+        let bc = NodesBroadcast::new("WA2M-9", "ZA2M09");
+        let bytes = bc.encode();
+
+        assert_eq!(
+            bytes.len(),
+            L3Header::SIZE + 1 + 6,
+            "a self-announcement is header + signature + alias and nothing else"
+        );
+        assert_eq!(
+            bytes[L3Header::SIZE],
+            NODES_SIGNATURE,
+            "the 0xFF signature must directly follow the L3 header"
+        );
+        assert_eq!(
+            &bytes[L3Header::SIZE + 1..L3Header::SIZE + 7],
+            b"ZA2M09",
+            "alias is 6 bytes, upper case, immediately after the signature"
+        );
+
+        // Round-trips, so we are sending something we would ourselves accept.
+        let parsed = NodesBroadcast::parse(&bytes).expect("must parse");
+        assert_eq!(parsed.source.to_string(), "WA2M-9");
+        assert_eq!(&parsed.sender_alias, b"ZA2M09");
+        assert!(parsed.routes.is_empty());
+    }
+
+    #[test]
+    fn short_alias_is_space_padded() {
+        let bc = NodesBroadcast::new("WA2M-9", "AB");
+        let bytes = bc.encode();
+        assert_eq!(&bytes[L3Header::SIZE + 1..L3Header::SIZE + 7], b"AB    ");
+    }
+}
