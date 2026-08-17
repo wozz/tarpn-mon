@@ -129,6 +129,7 @@ if [ -n "$CHAT_CALL" ] && ! is_valid_call "$CHAT_CALL"; then
     err "CHAT_CALL '${CHAT_CALL}' is not a valid callsign"
 fi
 tok chatcall "$(call_lower "$CHAT_CALL")"
+tok chatcall-upper "$(call_upper "$CHAT_CALL")"
 
 tok chatnode "$(chat_alias "$CHAT_CALL")"
 
@@ -136,6 +137,7 @@ tok chatnode "$(chat_alias "$CHAT_CALL")"
 # module, which attaches over NetROM as its own node. Running both would put
 # two chat systems on the same callsign, so they are mutually exclusive.
 CHAT_PROVIDER="$(nc CHAT_PROVIDER linbpq)"
+tok maxroutes 12          # stock TARPN value; the tarpn-chat branch raises it
 case "$CHAT_PROVIDER" in
     linbpq)
         tok chat-linbpq ""
@@ -146,6 +148,10 @@ case "$CHAT_PROVIDER" in
         # Built-in chat off; NetROM host port on so tarpn-chat can attach.
         tok chat-linbpq ";"
         tok netromport ""
+        # tarpn-chat holds one of the adjacent-node slots for the locked route
+        # it attaches on. A node with every port populated (10 NinoTNC + 2
+        # serial) would otherwise have no room left for it.
+        tok maxroutes 13
         netrom_port="$(nc NETROM_PORT 63119)"
         if ! printf '%s' "$netrom_port" | grep -qE '^[1-9][0-9]{3,4}$'; then
             err "NETROM_PORT '${netrom_port}' is not a valid TCP port"

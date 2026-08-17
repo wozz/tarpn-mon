@@ -42,24 +42,33 @@ Configuration
   show                   print the generated bpq32.cfg
   import-node-ini PATH   convert a legacy node.ini into node.conf
 
+Updating
+  update                 update the whole node: refresh the source checkout,
+                         re-stage /opt/tarpn, reinstall every installed
+                         module, regenerate bpq32.cfg, restart what is running
+  update <module>...     refresh just these modules (no config regeneration)
+
 Modules
   list                   list available and installed modules
   install <module>...    install and enable a module
   remove  <module>       remove a module (configuration is kept)
-  update  [module]...    reinstall units and refresh binaries
 
 Options
   --dry-run              show what would happen, change nothing
+  --no-pull              update without git-pulling the source checkout
   --help                 this message
 EOF
 }
 
 # ---------------------------------------------------------------------------
 
+UPDATE_PULL=true
+
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) TARPN_DRY_RUN=true; shift ;;
+        --no-pull) UPDATE_PULL=false; shift ;;
         --help|-h) usage; exit 0 ;;
         *) ARGS+=("$1"); shift ;;
     esac
@@ -504,8 +513,74 @@ cmd_remove() {
     for name in "$@"; do module_remove "$name"; done
 }
 
+# Update in two phases. Phase 1 refreshes the source tree and re-stages
+# /opt/tarpn; phase 2 does the module, config and restart work. They are
+# separated by an exec so that phase 2 runs the code that was just staged
+# rather than the code that started the update - otherwise a release that
+# changes how modules install would not take effect until the *next* update.
 cmd_update() {
     need_root
+
+    if [ "${TARPN_UPDATE_STAGED:-false}" != true ]; then
+        cmd_update_stage "$@"
+        return
+    fi
+    cmd_update_apply "$@"
+}
+
+# Phase 1: find the source, refresh it, stage it, then hand over.
+cmd_update_stage() {
+    local src
+    src="$(conf_get "$TARPN_CONF" SOURCE_DIR "")"
+
+    if [ -z "$src" ]; then
+        # Installed before SOURCE_DIR was recorded, or staged by hand.
+        log_err "this node does not record where it was installed from"
+        log_dim "run the installer once from your checkout to record it:"
+        log_dim "  sudo /path/to/tarpn-mon/tarpn-node/install.sh"
+        log_dim "after that, 'sudo tarpnctl update' is enough"
+        exit 1
+    fi
+    [ -d "$src" ] || die "recorded source tree is gone: ${src}"
+
+    if [ "$UPDATE_PULL" != true ]; then
+        log_dim "--no-pull given; using ${src} as it is"
+    elif ! command -v git >/dev/null 2>&1 || \
+         ! git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
+        log_dim "${src} is not a git checkout; using it as it is"
+    elif [ -n "$(git -C "$src" status --porcelain 2>/dev/null)" ]; then
+        # Pulling over local edits either fails or silently discards work.
+        log_warn "local changes in ${src}; not pulling"
+        log_dim "commit or stash them first, or pass --no-pull to skip this step"
+    elif ! git -C "$src" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+        log_warn "${src} has no upstream branch; not pulling"
+        log_dim "installing from the tree as it is - this may not be the latest"
+    else
+        log_step "Refreshing ${src}"
+        # A failed pull is not fatal: an offline node should still be able to
+        # re-stage and repair itself from the checkout it already has. It does
+        # mean this is not necessarily the newest code, so say so plainly
+        # rather than reporting a clean update.
+        if ! run git -C "$src" pull --ff-only; then
+            log_warn "git pull failed; installing from the tree as it is"
+            log_dim "this may not be the latest - resolve it in ${src} and re-run"
+        fi
+    fi
+
+    stage_tree "$src"
+
+    if [ "$TARPN_DRY_RUN" = true ]; then
+        log_dim "would re-exec the staged tarpnctl to finish the update"
+        TARPN_UPDATE_STAGED=true cmd_update_apply "$@"
+        return
+    fi
+
+    export TARPN_UPDATE_STAGED=true TARPN_DRY_RUN
+    exec "${TARPN_PREFIX}/bin/tarpnctl" update "$@"
+}
+
+# Phase 2: reinstall modules, refresh the generated config, restart once.
+cmd_update_apply() {
     local names=("$@") name
     if [ ${#names[@]} -eq 0 ]; then
         names=()
@@ -515,20 +590,56 @@ cmd_update() {
     fi
     [ ${#names[@]} -gt 0 ] || die "nothing installed to update"
 
+    local ok=() bad=()
     for name in "${names[@]}"; do
-        module_install "$name"
+        if module_install "$name"; then ok+=("$name"); else bad+=("$name"); fi
     done
     systemd_reload
 
-    # Restart only what was already running, so an update never starts
-    # something the operator had deliberately stopped.
-    for name in "${names[@]}"; do
-        local unit
+    # Regenerate bpq32.cfg and let each module bring its own config back in
+    # step. A release often changes the template - that is much of the point of
+    # updating - and this is also the pre-flight check for the restart below:
+    # tarpn-linbpq.service regenerates the config in ExecStartPre, so a
+    # node.conf that does not validate would take the engine down on restart
+    # rather than merely failing to update it. Better to find that out here,
+    # with the node still running.
+    #
+    # Skipped when specific modules were named: that is a targeted refresh of
+    # those modules, not an update of the node as a whole.
+    if [ $# -eq 0 ] && module_is_installed linbpq; then
+        log_step "Regenerating bpq32.cfg"
+        if ! genconfig; then
+            log_err "node.conf does not validate; stopping before anything is restarted"
+            log_dim "the node is still running on its previous config"
+            log_dim "fix it with 'sudo tarpnctl config', then 'sudo tarpnctl update'"
+            exit 1
+        fi
+        for name in "${ok[@]}"; do
+            module_run_hook "$name" configure || \
+                log_warn "module ${name}: configure hook failed"
+        done
+    fi
+
+    # One restart pass at the end, so a unit is restarted once per update
+    # rather than once per phase. Only restarts what was already running: a
+    # service the operator deliberately stopped stays stopped.
+    local unit restarted=""
+    for name in "${ok[@]}"; do
         for unit in $(module_enable_units "$name"); do
-            unit_restart_if_active "$unit"
+            if unit_is_active "$unit"; then
+                restarted="${restarted} ${unit}"
+                unit_restart_if_active "$unit"
+            fi
         done
     done
-    log_info "Updated: ${names[*]}"
+    [ -n "$restarted" ] && log_dim "restarted:${restarted}"
+
+    if [ ${#bad[@]} -gt 0 ]; then
+        log_err "not updated: ${bad[*]}"
+        log_dim "usually means no binary is published for $(detect_arch) yet"
+        exit 1
+    fi
+    log_info "Updated: ${ok[*]}"
 }
 
 cmd_import() {

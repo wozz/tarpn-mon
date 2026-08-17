@@ -228,6 +228,52 @@ unit_restart_if_active() {
 }
 
 # ---------------------------------------------------------------------------
+# Staging the program tree
+# ---------------------------------------------------------------------------
+
+# stage_tree <source-dir> - copy lib/ bin/ modules/ docs/ into TARPN_PREFIX.
+#
+# Shared by install.sh and `tarpnctl update` so that both put exactly the same
+# thing on disk. Only touches TARPN_PREFIX: nothing under /etc or /var is
+# considered part of the program tree, so operator configuration is never at
+# risk here.
+stage_tree() {
+    local src="$1"
+    [ -d "$src" ] || die "source tree not found: ${src}"
+    [ -f "${src}/lib/tarpn-common.sh" ] || \
+        die "${src} does not look like a tarpn-node tree (no lib/tarpn-common.sh)"
+
+    log_step "Staging ${TARPN_PREFIX}"
+
+    run install -d -m 0755 "$TARPN_PREFIX"
+
+    local d
+    for d in lib bin modules docs; do
+        [ -d "${src}/${d}" ] || continue
+        if [ "$TARPN_DRY_RUN" = true ]; then
+            log_dim "would copy ${d}/ to ${TARPN_PREFIX}/${d}/"
+            continue
+        fi
+        # Replace the staged copy wholesale so that files dropped in a new
+        # release do not linger. rm before cp also means the new files land on
+        # a fresh inode, so a tarpnctl that is running out of this directory
+        # keeps reading the copy it started with instead of being rewritten
+        # underneath itself.
+        rm -rf "${TARPN_PREFIX:?}/${d}"
+        cp -R "${src}/${d}" "${TARPN_PREFIX}/${d}"
+    done
+
+    if [ "$TARPN_DRY_RUN" != true ]; then
+        chmod 0755 "${TARPN_PREFIX}/bin/"* 2>/dev/null || true
+        find "${TARPN_PREFIX}/modules" -type d -name bin -exec chmod -R 0755 {} + 2>/dev/null || true
+        find "${TARPN_PREFIX}/modules" -type d -name hooks -exec chmod -R 0755 {} + 2>/dev/null || true
+    fi
+
+    run ln -sfn "${TARPN_PREFIX}/bin/tarpnctl" "${TARPN_BINDIR}/tarpnctl"
+    log_info "tarpnctl available at ${TARPN_BINDIR}/tarpnctl"
+}
+
+# ---------------------------------------------------------------------------
 # LinBPQ upstream builds
 # ---------------------------------------------------------------------------
 # G8BPQ publishes a build per architecture. Verified against the actual files:

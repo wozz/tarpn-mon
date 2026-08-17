@@ -139,38 +139,6 @@ check_legacy() {
 }
 
 # ---------------------------------------------------------------------------
-# Staging
-# ---------------------------------------------------------------------------
-
-stage_tree() {
-    log_step "Staging ${TARPN_PREFIX}"
-
-    run install -d -m 0755 "$TARPN_PREFIX"
-
-    local d
-    for d in lib bin modules docs; do
-        [ -d "${TARPN_SELF_DIR}/${d}" ] || continue
-        if [ "$TARPN_DRY_RUN" = true ]; then
-            log_dim "would copy ${d}/ to ${TARPN_PREFIX}/${d}/"
-            continue
-        fi
-        # Replace the staged copy wholesale so that removed files in a new
-        # release do not linger, but never touch /etc or /var here.
-        rm -rf "${TARPN_PREFIX:?}/${d}"
-        cp -R "${TARPN_SELF_DIR}/${d}" "${TARPN_PREFIX}/${d}"
-    done
-
-    if [ "$TARPN_DRY_RUN" != true ]; then
-        chmod 0755 "${TARPN_PREFIX}/bin/"* 2>/dev/null || true
-        find "${TARPN_PREFIX}/modules" -type d -name bin -exec chmod -R 0755 {} + 2>/dev/null || true
-        find "${TARPN_PREFIX}/modules" -type d -name hooks -exec chmod -R 0755 {} + 2>/dev/null || true
-    fi
-
-    run ln -sfn "${TARPN_PREFIX}/bin/tarpnctl" "${TARPN_BINDIR}/tarpnctl"
-    log_info "tarpnctl available at ${TARPN_BINDIR}/tarpnctl"
-}
-
-# ---------------------------------------------------------------------------
 # Uninstall
 # ---------------------------------------------------------------------------
 
@@ -243,7 +211,7 @@ log_info "Architecture: ${ARCH}"
 
 check_old_overlay
 check_legacy
-stage_tree
+stage_tree "$TARPN_SELF_DIR"
 
 # From here on, work against the staged tree so that what runs during install
 # is exactly what will run later.
@@ -296,6 +264,15 @@ systemd_reload
 for m in $INSTALLED; do
     module_enable "$m"
 done
+
+# Remember where this tree came from and how it was installed, so that
+# `tarpnctl update` can repeat the job without the operator having to
+# remember the directory or re-supply --alongside. Written after core is
+# installed, since that is what creates tarpn.conf.
+if [ -f "$TARPN_CONF" ] || [ "$TARPN_DRY_RUN" = true ]; then
+    conf_set "$TARPN_CONF" SOURCE_DIR "$TARPN_SELF_DIR"
+    conf_set "$TARPN_CONF" ALONGSIDE_LEGACY "$ALONGSIDE"
+fi
 
 # Replacing a binary on disk does not restart whatever is running the old one,
 # so without this an update appears to succeed while the node carries on with

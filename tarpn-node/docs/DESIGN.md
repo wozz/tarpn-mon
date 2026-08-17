@@ -188,10 +188,14 @@ and cannot be triggered by a neighbour alone.
    later pass. Collapsed to one token with a directly meaningful value.
 4. **TARPN Home and the inetd node commands are gated off** behind
    `LEGACY_TARPN_APPS`, default `false`. See below.
-5. **Chat has a provider switch.** `LINCHAT` and `APPLICATION 2,CHAT` are
-   gated on `CHAT_PROVIDER`, and a `NETROMPORT` line was added, which the
-   stock template does not declare at all. Both are needed so the
+5. **Chat has a provider switch.** `LINCHAT` is gated on `CHAT_PROVIDER`, and
+   a `NETROMPORT` line plus a locked route for the chat callsign were added,
+   neither of which the stock template declares. All three are needed so the
    `tarpn-chat` module can take over chat without hand-editing the config.
+6. **`MAXROUTES` is 13, not 12, when `CHAT_PROVIDER=tarpn-chat`.** The chat
+   node occupies an adjacent-node slot like any other neighbour. A node with
+   all ten NinoTNC ports and both serial ports populated would otherwise have
+   no slot left for it, and chat would fail on exactly the largest nodes.
 
 ## Services that depend on the engine
 
@@ -212,10 +216,10 @@ never the monitor or chat.
 LinBPQ's built-in `LINCHAT` and the `tarpn-chat` server would answer on the
 same callsign, so `CHAT_PROVIDER` in `node.conf` picks one:
 
-| `CHAT_PROVIDER` | `LINCHAT` | `APPLICATION 2,CHAT` | `NETROMPORT` |
-|-----------------|-----------|----------------------|--------------|
-| `linbpq`        | on        | on                   | off          |
-| `tarpn-chat`    | off       | off                  | on           |
+| `CHAT_PROVIDER` | `LINCHAT` | `NETROMPORT` | locked route for the chat call |
+|-----------------|-----------|--------------|--------------------------------|
+| `linbpq`        | on        | off          | no                             |
+| `tarpn-chat`    | off       | on           | yes                            |
 
 Installing the `tarpn-chat` module sets it to `tarpn-chat`; removing the
 module sets it back to `linbpq`. Neither takes effect until `tarpnctl apply`
@@ -224,6 +228,44 @@ regenerates `bpq32.cfg` and restarts the engine, and both say so.
 `tarpn-chat` attaches to LinBPQ over the NetROM host port as its own node,
 rather than being an `APPLICATION` behind the engine. `tarpn-mon` then reaches
 it over its local WebSocket API on 127.0.0.1:8513 — not over telnet.
+
+### Attaching over NETROMPORT takes two directives, not one
+
+Both are needed, and getting either wrong fails quietly rather than loudly.
+
+**1. `NETROMPORT` is a Telnet-driver setting.** It is parsed in
+`TelnetV6.c` alongside `TCPPORT` and `HTTPPORT`, so it only counts inside the
+`CONFIG` block of the telnet port (`PORTNUM=32`). At the top level of
+`bpq32.cfg` LinBPQ does not recognise it and skips the line:
+
+```
+bpq32.cfg line no 142 not recognised - Ignored: NETROMPORT=63119
+```
+
+Nothing then listens on the port, and `tarpn-chat` retries a refused
+connection every 30 seconds forever.
+
+**2. A locked `ROUTE` for the chat callsign must exist.** An inbound
+NetROM/TCP connection is matched against the neighbour table by callsign and
+port (`FindNeighbour` in `NETROMTCP.c`); with no match LinBPQ closes it:
+
+```
+Neighbour WA2M-9 port 32 not found - closing connection
+```
+
+So the generated config carries both:
+
+```
+CALL=WA2M-9,QUALITY=200,PORT=32,TCP=0.0.0.0:63119
+```
+
+`TCP=0.0.0.0:...` marks the route as NetROM-over-TCP without giving LinBPQ a
+real address to dial, which is what we want: the connection is always inbound,
+made by `tarpn-chat`.
+
+Note that only the first of these produces a log line. A node with
+`NETROMPORT` correctly placed but no route logs nothing at startup and still
+never connects.
 
 ## Settings that belong to the application
 
