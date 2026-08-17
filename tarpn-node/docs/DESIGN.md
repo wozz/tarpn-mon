@@ -229,6 +229,54 @@ regenerates `bpq32.cfg` and restarts the engine, and both say so.
 rather than being an `APPLICATION` behind the engine. `tarpn-mon` then reaches
 it over its local WebSocket API on 127.0.0.1:8513 — not over telnet.
 
+### Advertising the chat node
+
+A locked route lets the chat node send. It does not make it reachable.
+
+LinBPQ routes every L3 packet by a destination lookup and drops it when there
+is no match (`L4Code.c`):
+
+```c
+if (FindDestination(L3MSG->L3DEST, &DEST) == 0)
+{
+    ReleaseBuffer(L3MSG);           // CANT FIND DESTINATION
+    return;
+}
+```
+
+The L4 circuit is end to end and holds no routing state, so this applies to
+both directions: a peer answering our `CREQ` has nowhere to send the `CACK`.
+Outbound calls fail for the same reason inbound ones do — which is easy to
+miss, because dialling out to a node still running the legacy stack works
+(that node already has a destination for us from before).
+
+**A NODES broadcast from the chat node does not work, and must not be added
+back.** `PROCESSNODEMESSAGE`, which turns a broadcast into a destination, is
+only reached from the AX.25 UI-frame path in `L2Code.c` (and `VARA.c`). Frames
+arriving over NetROM-over-TCP go to `NETROMMSG` in `L4Code.c`, which handles
+the PID, the neighbour record, INP3 RIFs, then L4/L3 routing — there is no
+NODES case. A broadcast sent that way is treated as an ordinary L3 packet
+addressed to `NODES`, fails the destination lookup, and is discarded.
+
+So the destination is registered directly, by the `npa` module, over the sysop
+telnet session it already holds:
+
+```
+NODES ADD <alias>:<call> 200 <call> 32 !
+```
+
+The neighbour is the chat node itself on the telnet port, matching the locked
+route it attached on. The trailing `!` is what makes it stick: it sets the
+obsolescence count to 255 instead of `OBSINIT`, and with `OBSINIT=16` against
+`OBSMIN=15` an ordinary entry drops out of the broadcasts after a single
+interval. LinBPQ refuses to add a destination twice, so re-running is a no-op,
+and npa re-registers by itself after the engine restarts — which is when the
+destination table is lost.
+
+The legacy stack did the same job by writing a `NODE ADD` line into
+`BPQNODES.dat`. That only takes effect at startup and is rewritten by
+`SAVENODES`, so it is not used here.
+
 ### Attaching over NETROMPORT takes two directives, not one
 
 Both are needed, and getting either wrong fails quietly rather than loudly.

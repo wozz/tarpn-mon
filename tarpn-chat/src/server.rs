@@ -19,7 +19,6 @@ use crate::client_api::{
 };
 use crate::config::Config;
 use crate::netrom::{Callsign, Inp3Rif, RttMessage, create_rtt_request, is_rtt_frame, is_rtt_reply};
-use crate::netrom::NodesBroadcast;
 use crate::peer::{PeerConnectionState, PeerPhase};
 use crate::protocol::{ChatConnection, ChatEvent, Message};
 use crate::routing::SessionManager;
@@ -259,30 +258,21 @@ impl ChatServer {
         let mut keepalive_last_send = Instant::now();
         let keepalive_interval = Duration::from_secs(600); // 10 minutes
 
-        // NODES broadcast timer.
+        // No NODES broadcast is sent here, and one must not be added.
         //
-        // Without this our callsign never becomes a destination anywhere. LinBPQ
-        // routes every L3 packet by a DEST lookup on the destination callsign
-        // (L4Code.c: "if (FindDestination(L3MSG->L3DEST, &DEST) == 0) ... CANT
-        // FIND DESTINATION"), and the L4 circuit gives no return path - it is an
-        // end-to-end concept, each frame is routed independently. So a peer that
-        // receives our CREQ cannot route the CACK back and the connection never
-        // completes, even though we dialled out successfully.
+        // It looks like the obvious way to get our callsign into the network's
+        // routing tables, but LinBPQ never processes it on this path.
+        // PROCESSNODEMESSAGE, which is what turns a broadcast into a
+        // destination, is only reached from the AX.25 UI-frame path in
+        // L2Code.c (and VARA.c). Frames arriving over NetROM-over-TCP go to
+        // NETROMMSG in L4Code.c, which handles the PID, the neighbour record,
+        // INP3 RIFs, and then L4/L3 routing - it has no NODES case at all. A
+        // broadcast sent here is routed as an ordinary L3 packet addressed to
+        // "NODES", fails the destination lookup, and is dropped.
         //
-        // Sending a NODES broadcast fixes that at the protocol level rather than
-        // by editing BPQNODES.dat: LinBPQ adds the *sender* of a broadcast to its
-        // destination list (L3Code.c: "CHECK LINK IS IN DEST LIST"), taking the
-        // alias from the broadcast and the quality from the route we arrived on -
-        // the locked 200 the generated config gives us. It then advertises us
-        // onward in its own broadcasts, so the whole network learns the route
-        // back. No route entries are included: the sender is implicit, and
-        // listing ourselves would be a destination reachable via ourselves.
-        //
-        // Destinations age out, so this has to repeat. It costs nothing here (a
-        // few dozen bytes over loopback TCP); the airtime is LinBPQ's own NODES
-        // broadcast, which happens on its own schedule regardless.
-        let mut nodes_last_send: Option<Instant> = None;
-        let nodes_interval = Duration::from_secs(600); // 10 minutes
+        // Our destination is registered instead by the npa module, which
+        // issues LinBPQ's "NODES ADD" sysop command over the telnet port. See
+        // docs/DESIGN.md, "Advertising the chat node".
 
         // Peer connection tracking with retry/backoff
         let mut peer_states: Vec<PeerConnectionState> = self.config.peers.iter()
@@ -388,22 +378,6 @@ impl ChatServer {
                             warn!("Failed to send RTT: {}", e);
                         } else {
                             debug!("Sent INP3 RTT (id={}, tx_time={})", rtt_id - 1, tx_time);
-                        }
-                    }
-
-                    // Announce ourselves so LinBPQ, and then the network, has a
-                    // route back to us. Sent as soon as the transport is up so
-                    // the first outbound call has somewhere to be answered to.
-                    if nodes_last_send.map_or(true, |t| t.elapsed() >= nodes_interval) {
-                        nodes_last_send = Some(Instant::now());
-                        let bc = NodesBroadcast::new(&our_call_str, &our_alias);
-                        match transport.send_raw(&bc.encode()).await {
-                            Ok(()) => debug!(
-                                call = %our_call_str,
-                                alias = %our_alias,
-                                "Sent NODES broadcast announcing ourselves"
-                            ),
-                            Err(e) => warn!("Failed to send NODES broadcast: {}", e),
                         }
                     }
 

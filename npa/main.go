@@ -51,9 +51,10 @@ import (
 var Version = "dev"
 
 const (
-	defaultNode    = "127.0.0.1:8010"
-	defaultConfig  = "/etc/tarpn/node.conf"
-	defaultQuality = 200
+	defaultNode       = "127.0.0.1:8010"
+	defaultConfig     = "/etc/tarpn/node.conf"
+	defaultChatConfig = "/etc/tarpn/tarpn-chat.toml"
+	defaultQuality    = 200
 
 	// The telnet port. Routes on it belong to NetROM-over-TCP attachments such
 	// as tarpn-chat, which are locked by config and have no RF port to discover.
@@ -91,6 +92,7 @@ func main() {
 		quality  = flag.Int("quality", defaultQuality, "route quality to set when locking")
 		dryRun   = flag.Bool("dry-run", false, "report what would change, send nothing")
 		verbose  = flag.Bool("verbose", false, "log every command and reply")
+		chatConf = flag.String("chat-config", defaultChatConfig, "tarpn-chat.toml, for registering the chat node's route")
 		showVer  = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Usage = usage
@@ -101,7 +103,7 @@ func main() {
 		return
 	}
 
-	if err := run(*nodeAddr, *confPath, *quality, *dryRun, *verbose); err != nil {
+	if err := run(*nodeAddr, *confPath, *chatConf, *quality, *dryRun, *verbose); err != nil {
 		fmt.Fprintf(os.Stderr, "tarpn-npa: %v\n", err)
 		os.Exit(1)
 	}
@@ -121,7 +123,7 @@ Usage: tarpn-npa [options]
 	flag.PrintDefaults()
 }
 
-func run(nodeAddr, confPath string, quality int, dryRun, verbose bool) error {
+func run(nodeAddr, confPath, chatConfPath string, quality int, dryRun, verbose bool) error {
 	wanted, err := readNeighbours(confPath)
 	if err != nil {
 		return err
@@ -215,6 +217,12 @@ func run(nodeAddr, confPath string, quality int, dryRun, verbose bool) error {
 		changes++
 	}
 
+	if n, err := ensureChatDest(nc, confPath, chatConfPath, dryRun); err != nil {
+		fmt.Printf("chat node: %v\n", err)
+	} else {
+		changes += n
+	}
+
 	if changes == 0 {
 		fmt.Println("no changes needed")
 		return nil
@@ -251,27 +259,9 @@ var slotPorts = []struct {
 // The port is advisory: it is reported when it disagrees with reality, but the
 // lock always follows what was actually heard.
 func readNeighbours(path string) (map[string]int, error) {
-	f, err := os.Open(path)
+	conf, err := readConf(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-	defer f.Close()
-
-	conf := map[string]string{}
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		conf[strings.TrimSpace(k)] = strings.TrimSpace(v)
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+		return nil, err
 	}
 
 	out := map[string]int{}
@@ -637,4 +627,142 @@ func sortedCalls(m map[string]int) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// The chat node's destination
+// ---------------------------------------------------------------------------
+
+// ensureChatDest makes sure the tarpn-chat node exists as a NetROM destination,
+// so the rest of the network has a route back to it.
+//
+// tarpn-chat attaches over NETROMPORT and gets a locked ROUTE from the
+// generated config, which is enough to carry traffic we originate. It is not
+// enough to be reachable: LinBPQ routes every L3 packet by a destination
+// lookup, and a peer answering our CREQ has nowhere to send the CACK unless our
+// chat callsign is a destination that has been advertised outward.
+//
+// The obvious fix - have tarpn-chat send a NODES broadcast - does not work.
+// PROCESSNODEMESSAGE is only reached from the AX.25 UI-frame path in L2Code.c;
+// frames arriving over NetROM-over-TCP go to NETROMMSG, which has no NODES
+// case, so the broadcast is routed as an ordinary packet to "NODES", fails the
+// destination lookup and is dropped.
+//
+// So the destination is registered directly, with the sysop command LinBPQ
+// provides for it:
+//
+//	NODES ADD <alias>:<call> <quality> <neighbour> <port> !
+//
+// The neighbour is the chat node itself, on the telnet port, matching the
+// locked route it attached on. The trailing "!" sets the obsolescence count to
+// 255 rather than OBSINIT, so the entry does not age out of the broadcasts -
+// with OBSINIT=16 and OBSMIN=15 an ordinary entry survives barely one interval.
+//
+// LinBPQ refuses to add a destination twice ("Node already in Table"), so this
+// is safe to run on every pass; it re-registers by itself after a restart of
+// the engine, which is when the destination table is lost.
+func ensureChatDest(nc *conn, confPath, chatConfPath string, dryRun bool) (int, error) {
+	conf, err := readConf(confPath)
+	if err != nil {
+		return 0, err
+	}
+	if provider := conf["CHAT_PROVIDER"]; !strings.EqualFold(provider, "tarpn-chat") {
+		return 0, nil // LinBPQ serves chat itself; it needs no route of its own
+	}
+
+	call, alias, err := chatIdentity(conf, chatConfPath)
+	if err != nil {
+		return 0, err
+	}
+
+	port := conf["NETROM_TELNET_PORT"]
+	if port == "" {
+		port = strconv.Itoa(telnetPort)
+	}
+
+	cmd := fmt.Sprintf("NODES ADD %s:%s %d %s %s !", alias, call, defaultQuality, call, port)
+	if dryRun {
+		fmt.Printf("%-9s would register as a destination on port %s\n", call, port)
+		return 1, nil
+	}
+
+	out, err := nc.command(cmd)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case strings.Contains(out, "Node Added"):
+		fmt.Printf("%-9s registered as a destination on port %s\n", call, port)
+		return 1, nil
+	case strings.Contains(out, "already in Table"):
+		return 0, nil
+	case strings.Contains(out, "below MINQUAL"):
+		return 0, fmt.Errorf("quality %d is below the node's MINQUAL", defaultQuality)
+	case strings.Contains(out, "Neighbour missing"), strings.Contains(out, "Invalid Neighbour"):
+		return 0, fmt.Errorf("no route to %s on port %s; is tarpn-chat attached and CHAT_PROVIDER set?", call, port)
+	default:
+		return 0, fmt.Errorf("unexpected reply to NODES ADD: %q", trim(clean(out)))
+	}
+}
+
+// chatIdentity returns the chat callsign and alias. The alias is whatever
+// tarpn-chat actually announces itself as, so it is read from that config
+// rather than derived a second time and risking a mismatch.
+func chatIdentity(conf map[string]string, chatConfPath string) (call, alias string, err error) {
+	call = strings.ToUpper(strings.TrimSpace(conf["CHAT_CALL"]))
+	if call == "" {
+		node := strings.ToUpper(strings.TrimSpace(conf["NODE_CALL"]))
+		if node == "" {
+			return "", "", fmt.Errorf("neither CHAT_CALL nor NODE_CALL is set")
+		}
+		if i := strings.Index(node, "-"); i > 0 {
+			node = node[:i]
+		}
+		call = node + "-9"
+	}
+	if !validCall(call) {
+		return "", "", fmt.Errorf("chat callsign %q is not valid", call)
+	}
+
+	chat, err := readConf(chatConfPath)
+	if err != nil {
+		return "", "", fmt.Errorf("reading %s: %w", chatConfPath, err)
+	}
+	alias = strings.ToUpper(strings.Trim(chat["alias"], `"`))
+	if alias == "" {
+		return "", "", fmt.Errorf("no alias in %s; cannot register the chat node", chatConfPath)
+	}
+	return call, alias, nil
+}
+
+// readConf reads a KEY=value file. Comments and blank lines are skipped, and
+// both "#" and ";" start a comment so the same reader handles node.conf and the
+// [section] style of tarpn-chat.toml, where only the bare keys are wanted.
+func readConf(path string) (map[string]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	defer f.Close()
+
+	conf := map[string]string{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			continue // section header
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		conf[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	return conf, nil
 }
