@@ -108,6 +108,41 @@ here include operator-written CTEXT and INFO strings.
 The generator validates before writing and refuses to emit a config containing
 unresolved `q~token~q` placeholders, then replaces the file atomically.
 
+### Outbound reporting
+
+LinBPQ contacts three hosts of its own accord. On a network whose premise is
+that it works without the Internet, that is worth knowing about and, where
+possible, turning off.
+
+| Host | What | Controlled by |
+|------|------|---------------|
+| `update.g8bpq.net:81` | node map report — position, callsign | sent only when `LOCATOR` is set; server overridable |
+| `chatupdate.g8bpq.net:81` | chat map report | set up *regardless* of `LOCATOR`; server overridable |
+| `node-api.packet.oarc.uk` | OARC node API | `ENABLEOARCAPI`, off unless set |
+
+`MAP_REPORTING` in `node.conf` defaults to off, which emits
+`NODEMAPSERVER=localhost` and `CHATMAPSERVER=localhost`. That stops the
+reports and, because the names are what LinBPQ looks up, the DNS queries for
+them as well.
+
+Two details worth knowing:
+
+The chat report is *not* gated on `LOCATOR` — the source comments say "Set up
+Chat Report even if no LOCATOR" — so clearing your position is not on its own
+enough to stop everything. Overriding the server names is.
+
+`OpenReportingSockets()` starts a resolver thread unconditionally, and that
+thread looks up all three names whether or not anything will be sent, retrying
+every five minutes while they fail. Overriding the first two leaves only the
+OARC lookup, and `NodeAPIServer` has no override directive — so that one DNS
+query cannot be suppressed from the config at all. Nothing is *sent* there
+without `ENABLEOARCAPI`, which stays off. If even the lookup matters, point it
+at nothing:
+
+```
+echo '127.0.0.1 node-api.packet.oarc.uk' | sudo tee -a /etc/hosts
+```
+
 ### AX.25 v2.2 and XID
 
 LinBPQ 6.0.25 advertises AX.25 v2.2, which means it sends **XID** frames at

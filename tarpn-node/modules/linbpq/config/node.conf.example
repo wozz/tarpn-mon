@@ -23,8 +23,17 @@ OP_CALL=N0CALL
 # Sysop password for the telnet SYSOP user. Change this.
 SYSOP_PASSWORD=changeme
 
-# Decimal latitude,longitude. Used for the BPQ node map. Leave blank to omit.
+# Decimal latitude,longitude. Shown in node info. Leave blank to omit.
 LATLON=
+
+# Report this node to G8BPQ's public map servers (update.g8bpq.net and
+# chatupdate.g8bpq.net). Off by default - the node works without the Internet,
+# and its position and callsign are not sent anywhere unless you say so.
+#
+# With this off, the map server names are pointed at localhost, which also
+# stops LinBPQ looking them up in DNS. See docs/DESIGN.md for the one lookup
+# that cannot be suppressed this way.
+MAP_REPORTING=false
 
 # Connect text, shown to incoming connections.
 CTEXT=Welcome to the MYNODE node

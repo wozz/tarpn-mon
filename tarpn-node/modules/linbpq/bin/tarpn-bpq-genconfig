@@ -160,6 +160,24 @@ case "$CHAT_PROVIDER" in
         ;;
 esac
 
+# LinBPQ reports this node to G8BPQ's map servers. The node map report goes to
+# update.g8bpq.net:81 whenever LOCATOR is set, and the chat report is set up
+# regardless of LOCATOR. Both server names are overridable, so pointing them
+# at localhost stops the reports and the outbound DNS lookups for them.
+#
+# Off by default: a TARPN node's premise is that it works without the
+# Internet, and reporting its position and callsign to a third party is not
+# something to do because a config file said nothing.
+case "$(nc MAP_REPORTING false)" in
+    true|yes|on|1)
+        tok mapoverride ";"
+        log_warn "MAP_REPORTING is on; this node will report itself to G8BPQ's map servers"
+        ;;
+    *)
+        tok mapoverride ""
+        ;;
+esac
+
 # AX.25 version. LinBPQ 6.0.25 advertises v2.2 by default, which means it
 # sends XID frames to negotiate link parameters at connect time.
 #
