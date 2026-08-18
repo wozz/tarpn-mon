@@ -24,50 +24,54 @@ fi
 # Say a line to the user. Telnet convention is CRLF; LinBPQ passes it through.
 # Trailing whitespace is stripped: column padding at the end of a line is pure
 # airtime on a 1200 baud link.
-# Bytes written, used to size the hold in _cmd_drain.
-_CMD_BYTES=0
-
-say() {
-    local s="$*"
-    s="${s%"${s##*[![:space:]]}"}"
-    _CMD_BYTES=$(( _CMD_BYTES + ${#s} + 2 ))
-    printf '%s\r\n' "$s"
-}
-blank() { _CMD_BYTES=$(( _CMD_BYTES + 2 )); printf '\r\n'; }
-
-# Stay alive briefly after writing, before exiting.
+# Output is collected and written in one go rather than a line at a time, then
+# the socket is held open briefly. Both matter, for the same reason.
 #
-# Not politeness, and not a workaround for slow radio: without it output is
-# silently lost, on a local telnet session as readily as over the air.
-#
-# There is nothing to flush. Our writes reach the socket immediately and LinBPQ
-# receives them. It then moves them onward in stages - socket into
-# FromHostBuffer, FromHostBuffer into the session queue at most PACLEN per
-# driver poll, and one buffer off that queue per poll. When the handler exits,
-# LinBPQ sees EOF, counts NeedDisc down, and tears the session down - at which
-# point it discards both stages outright (TelnetV6.c):
+# LinBPQ moves what we send in stages: socket into FromHostBuffer, then at most
+# PACLEN of that into the session queue per driver poll, then exactly one
+# buffer off that queue per poll - one buffer, whatever its size. On EOF it
+# counts NeedDisc down, about ten polls, and then tears the session down,
+# discarding both stages outright (TelnetV6.c):
 #
 #     sockptr->FromHostBuffPutptr = sockptr->FromHostBuffGetptr = 0;
 #     while (PACTORtoBPQ_Q) { buffptr = Q_REM(...); ReleaseBuffer(buffptr); }
 #
-# So whatever has not been delivered when the countdown expires is freed, not
-# sent. Anything written early gets through - a header printed before a slow
-# query always arrives - while a burst written just before exit does not, and
-# how much survives varies with where the polls happened to fall. It exits 0
-# having written every line, which is why it looks like a display or radio
-# fault rather than a timing one.
+# Writing a line at a time is what made this bite: the polls fall between our
+# writes, so each line tends to become its own buffer, and eight lines need
+# eight polls to clear against a ten poll countdown. That is why output was
+# lost, why the amount varied, and why losses fell on line boundaries.
 #
-# Every legacy TARPN handler ends in a bare `sleep 3` for this. Scaled by what
-# was actually written rather than fixed: 120 bytes per second is roughly a
-# 1200 baud port, the slowest link these are read over. Floor of 3s to match
-# the legacy behaviour on short replies, ceiling well inside RuntimeMaxSec.
-_cmd_drain() {
-    local secs=$(( _CMD_BYTES / 120 ))
-    [ "$secs" -lt 3 ] && secs=3
-    [ "$secs" -gt 20 ] && secs=20
-    sleep "$secs"
+# Written as one block instead, the same eight lines are chunked at PACLEN into
+# two buffers and clear in a handful of polls. It also keeps the queue far
+# below the fifteen frames at which LinBPQ stops reading us altogether, so this
+# no longer depends on how fast the link drains - which is what made the
+# previous fix need a hold long enough for the radio.
+_CMD_BUF=""
+
+say() {
+    local s="$*"
+    _CMD_BUF="${_CMD_BUF}${s%"${s##*[![:space:]]}"}"$'\r\n'
 }
-trap _cmd_drain EXIT
+blank() { _CMD_BUF="${_CMD_BUF}"$'\r\n'; }
+
+# Write everything buffered so far as a single block. Handlers that prompt must
+# do this first, or the question is still sitting in the buffer while we wait
+# for its answer - `ask` does it for them.
+cmd_flush() {
+    [ -n "$_CMD_BUF" ] || return 0
+    printf '%s' "$_CMD_BUF"
+    _CMD_BUF=""
+}
+
+# Flush, then give LinBPQ time to move it on before the teardown starts. A
+# couple of buffers clear in well under half a second at the usual poll rate;
+# a second is margin, not a wait for the radio. Only a reply beyond about
+# fifteen frames could need longer, and none of these come close.
+_cmd_finish() {
+    cmd_flush
+    sleep 1
+}
+trap _cmd_finish EXIT
 
 # LinBPQ sends the calling station's callsign as the first line for
 # applications declared with the trailing "S" in their APPLICATION entry.
@@ -84,6 +88,7 @@ read_callsign() {
 # gives up rather than hanging if the link has gone away.
 ask() {
     local prompt="$1" timeout="${2:-60}" line
+    cmd_flush
     printf '%s' "$prompt"
     if IFS= read -r -t "$timeout" line; then
         printf '%s' "$line" | tr -d '\r\n'

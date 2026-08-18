@@ -96,7 +96,7 @@ if [ -z "$rows" ]; then
     exit 0
 fi
 
-printf '%s\n' "$rows" | awk -F'|' -v now="$(date +%s)" -v hourw="$WINDOW_HOUR" '
+body="$(printf '%s\n' "$rows" | awk -F'|' -v now="$(date +%s)" -v hourw="$WINDOW_HOUR" '
 # Collect per port and direction, already newest-first.
 {
     p = $1; d = $2
@@ -167,7 +167,16 @@ END {
             retry(p,"R",2), retry(p,"R",hourw), retry(p,"R",lastR_),
             missing(p)
     }
-}' | while IFS= read -r line; do say "$line"; done
+}')"
+
+# Fed in with a here-string, not a pipe: the read loop of a pipeline runs in a
+# subshell, and the output buffer built there would be flushed separately from
+# this shell's - putting the rows on the wire ahead of the header that was
+# still buffered here.
+# Guarded: a here-string of an empty value still yields one empty line.
+if [ -n "$body" ]; then
+    while IFS= read -r line; do say "$line"; done <<< "$body"
+fi
 
 blank
 say "Tx is this node, Rx is the neighbour, each from its own broadcast,"
