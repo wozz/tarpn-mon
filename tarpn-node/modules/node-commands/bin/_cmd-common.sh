@@ -24,11 +24,50 @@ fi
 # Say a line to the user. Telnet convention is CRLF; LinBPQ passes it through.
 # Trailing whitespace is stripped: column padding at the end of a line is pure
 # airtime on a 1200 baud link.
+# Bytes written, used to size the hold in _cmd_drain.
+_CMD_BYTES=0
+
 say() {
     local s="$*"
-    printf '%s\r\n' "${s%"${s##*[![:space:]]}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    _CMD_BYTES=$(( _CMD_BYTES + ${#s} + 2 ))
+    printf '%s\r\n' "$s"
 }
-blank() { printf '\r\n'; }
+blank() { _CMD_BYTES=$(( _CMD_BYTES + 2 )); printf '\r\n'; }
+
+# Stay alive briefly after writing, before exiting.
+#
+# Not politeness, and not a workaround for slow radio: without it output is
+# silently lost, on a local telnet session as readily as over the air.
+#
+# There is nothing to flush. Our writes reach the socket immediately and LinBPQ
+# receives them. It then moves them onward in stages - socket into
+# FromHostBuffer, FromHostBuffer into the session queue at most PACLEN per
+# driver poll, and one buffer off that queue per poll. When the handler exits,
+# LinBPQ sees EOF, counts NeedDisc down, and tears the session down - at which
+# point it discards both stages outright (TelnetV6.c):
+#
+#     sockptr->FromHostBuffPutptr = sockptr->FromHostBuffGetptr = 0;
+#     while (PACTORtoBPQ_Q) { buffptr = Q_REM(...); ReleaseBuffer(buffptr); }
+#
+# So whatever has not been delivered when the countdown expires is freed, not
+# sent. Anything written early gets through - a header printed before a slow
+# query always arrives - while a burst written just before exit does not, and
+# how much survives varies with where the polls happened to fall. It exits 0
+# having written every line, which is why it looks like a display or radio
+# fault rather than a timing one.
+#
+# Every legacy TARPN handler ends in a bare `sleep 3` for this. Scaled by what
+# was actually written rather than fixed: 120 bytes per second is roughly a
+# 1200 baud port, the slowest link these are read over. Floor of 3s to match
+# the legacy behaviour on short replies, ceiling well inside RuntimeMaxSec.
+_cmd_drain() {
+    local secs=$(( _CMD_BYTES / 120 ))
+    [ "$secs" -lt 3 ] && secs=3
+    [ "$secs" -gt 20 ] && secs=20
+    sleep "$secs"
+}
+trap _cmd_drain EXIT
 
 # LinBPQ sends the calling station's callsign as the first line for
 # applications declared with the trailing "S" in their APPLICATION entry.
