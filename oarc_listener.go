@@ -22,25 +22,29 @@ const (
 // LinBPQ sends "port" as a JSON string (e.g. "2") and uses abbreviated l2Type
 // values: "C" for connect (SABM), "D" for disconnect (DISC).
 type L2TraceEvent struct {
-	Type       string `json:"@type"`
-	Serial     int64  `json:"serial"`
-	Time       int64  `json:"time"`
-	Direction  string `json:"dirn"`   // "sent" or "rcvd"
-	IsRF       bool   `json:"isRF"`
-	ReportFrom string `json:"reportFrom"`
-	Port       string `json:"port"`   // String in LinBPQ (e.g. "2")
-	Source     string `json:"srce"`
-	Dest       string `json:"dest"`
-	Ctrl       int    `json:"ctrl"`
-	L2Type     string `json:"l2Type"` // "I", "UI", "C" (SABM), "D" (DISC), "UA", "DM", "RR", "RNR", "REJ", "FRMR", "SABME", "SREJ", "TEST", "XID"
-	Modulo     int    `json:"modulo"` // 8=normal AX.25, 128=extended
-	CR         string `json:"cr"`     // "C", "R", or "V1"
-	PF         string `json:"pf"`     // "P" or "F" (optional)
-	PID        int    `json:"pid"`    // 0xCF=NetROM, 0xF0=Text
-	Protocol   string `json:"ptcl"`
-	ILen       int    `json:"ilen"`
-	RSeq       int    `json:"rseq"`
-	TSeq       int    `json:"tseq"`
+	Type   string `json:"@type"`
+	Serial int64  `json:"serial"`
+	// Epoch seconds. LinBPQ sends this fractional (1787067409.412) even though
+	// the OARC spec shows an integer, so it must be a float: with int64 the
+	// number fails to unmarshal and takes the whole event with it, silently
+	// discarding every frame report.
+	Time       float64 `json:"time"`
+	Direction  string  `json:"dirn"` // "sent" or "rcvd"
+	IsRF       bool    `json:"isRF"`
+	ReportFrom string  `json:"reportFrom"`
+	Port       string  `json:"port"` // String in LinBPQ (e.g. "2")
+	Source     string  `json:"srce"`
+	Dest       string  `json:"dest"`
+	Ctrl       int     `json:"ctrl"`
+	L2Type     string  `json:"l2Type"` // "I", "UI", "C" (SABM), "D" (DISC), "UA", "DM", "RR", "RNR", "REJ", "FRMR", "SABME", "SREJ", "TEST", "XID"
+	Modulo     int     `json:"modulo"` // 8=normal AX.25, 128=extended
+	CR         string  `json:"cr"`     // "C", "R", or "V1"
+	PF         string  `json:"pf"`     // "P" or "F" (optional)
+	PID        int     `json:"pid"`    // 0xCF=NetROM, 0xF0=Text
+	Protocol   string  `json:"ptcl"`
+	ILen       int     `json:"ilen"`
+	RSeq       int     `json:"rseq"`
+	TSeq       int     `json:"tseq"`
 	// NetROM L3/L4 fields (present when pid=0xCF)
 	L3Type  string `json:"l3Type"`
 	L3Src   string `json:"l3src"`
@@ -57,37 +61,37 @@ type L2TraceEvent struct {
 
 // LinkUpEvent represents an AX.25 L2 link establishment
 type LinkUpEvent struct {
-	Type      string `json:"@type"`
-	Time      int64  `json:"time,omitempty"` // Not sent by LinBPQ on LinkUp, but in spec
-	Node      string `json:"node"`           // Reporting node callsign
-	ID        int    `json:"id"`
-	Direction string `json:"direction"` // "incoming" or "outgoing"
-	Port      string `json:"port"`
-	Remote    string `json:"remote"`
-	Local     string `json:"local"`
-	IsRF      bool   `json:"isRF"` // LinBPQ extension (not in spec)
+	Type      string  `json:"@type"`
+	Time      float64 `json:"time,omitempty"` // fractional epoch seconds; absent on LinkUp
+	Node      string  `json:"node"`           // Reporting node callsign
+	ID        int     `json:"id"`
+	Direction string  `json:"direction"` // "incoming" or "outgoing"
+	Port      string  `json:"port"`
+	Remote    string  `json:"remote"`
+	Local     string  `json:"local"`
+	IsRF      bool    `json:"isRF"` // LinBPQ extension (not in spec)
 }
 
 // LinkDownEvent represents an AX.25 L2 link teardown
 type LinkDownEvent struct {
-	Type       string `json:"@type"`
-	Time       int64  `json:"time"`
-	Node       string `json:"node"` // Reporting node callsign
-	ID         int    `json:"id"`
-	Direction  string `json:"direction"`
-	Port       string `json:"port"`
-	Remote     string `json:"remote"`
-	Local      string `json:"local"`
-	UpForSecs  int    `json:"upForSecs"`
-	FrmsSent   int64  `json:"frmsSent"`
-	FrmsRcvd   int64  `json:"frmsRcvd"`
-	FrmsResent int64  `json:"frmsResent"`
-	FrmsQueued int64  `json:"frmsQueued"`
-	FrmsQdPeak int64  `json:"frmsQdPeak"`
-	BytesSent  int64  `json:"bytesSent"`
-	BytesRcvd  int64  `json:"bytesRcvd"`
-	Reason     string `json:"reason"`
-	IsRF       bool   `json:"isRF"` // LinBPQ extension (not in spec)
+	Type       string  `json:"@type"`
+	Time       float64 `json:"time"` // fractional epoch seconds
+	Node       string  `json:"node"` // Reporting node callsign
+	ID         int     `json:"id"`
+	Direction  string  `json:"direction"`
+	Port       string  `json:"port"`
+	Remote     string  `json:"remote"`
+	Local      string  `json:"local"`
+	UpForSecs  int     `json:"upForSecs"`
+	FrmsSent   int64   `json:"frmsSent"`
+	FrmsRcvd   int64   `json:"frmsRcvd"`
+	FrmsResent int64   `json:"frmsResent"`
+	FrmsQueued int64   `json:"frmsQueued"`
+	FrmsQdPeak int64   `json:"frmsQdPeak"`
+	BytesSent  int64   `json:"bytesSent"`
+	BytesRcvd  int64   `json:"bytesRcvd"`
+	Reason     string  `json:"reason"`
+	IsRF       bool    `json:"isRF"` // LinBPQ extension (not in spec)
 }
 
 // CircuitUpEvent represents a NetROM L4 circuit establishment.
