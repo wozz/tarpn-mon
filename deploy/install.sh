@@ -890,7 +890,7 @@ patch_tarpn_scripts() {
 
     # Find tarpn_background.sh (location varies between TARPN versions)
     local TARPN_BG=""
-    for path in "/usr/local/sbin/tarpn_background.sh" "/home/pi/tarpn2/bin/tarpn_background.sh"; do
+    for path in "/usr/tarpn/sbin/tarpn_background.sh" "/usr/local/sbin/tarpn_background.sh" "/home/pi/tarpn2/bin/tarpn_background.sh"; do
         if [ -f "$path" ]; then
             TARPN_BG="$path"
             break
@@ -1001,7 +1001,7 @@ EOF
 patch_sendroutesviacq() {
     # Find statusmonitor.sh
     local STATUS_MON=""
-    for path in "/usr/local/sbin/statusmonitor.sh" "/home/pi/tarpn2/bin/statusmonitor.sh"; do
+    for path in "/usr/tarpn/sbin/statusmonitor.sh" "/usr/local/sbin/statusmonitor.sh" "/home/pi/tarpn2/bin/statusmonitor.sh"; do
         if [ -f "$path" ]; then
             STATUS_MON="$path"
             break
@@ -1016,7 +1016,8 @@ patch_sendroutesviacq() {
     log_step "Checking for legacy sendroutestocq in statusmonitor.sh..."
 
     # Check if it calls sendroutestocq and hasn't been patched yet
-    if grep -q "/usr/local/sbin/sendroutestocq" "$STATUS_MON" && \
+    # Path varies: /usr/tarpn/sbin/ (Bookworm) or /usr/local/sbin/ (Bullseye)
+    if grep -q "sendroutestocq" "$STATUS_MON" && \
        ! grep -q "# Disabled by tarpn-mon:" "$STATUS_MON"; then
 
         log_info "Found legacy sendroutestocq calls in $STATUS_MON"
@@ -1029,11 +1030,11 @@ patch_sendroutesviacq() {
         # Create backup
         cp "$STATUS_MON" "${STATUS_MON}.pre-sendroutesviacq.bak"
 
-        # Comment out all sendroutestocq invocations
+        # Comment out all sendroutestocq invocations (handles both Bullseye and Bookworm paths)
         # 1. The version check at startup
-        sed -i 's|/usr/local/sbin/sendroutestocq version|# Disabled by tarpn-mon: /usr/local/sbin/sendroutestocq version|' "$STATUS_MON"
+        sed -i 's|^\(\s*\)\(.*/sendroutestocq version\)|# Disabled by tarpn-mon: \2|' "$STATUS_MON"
         # 2. The main execution in the loop
-        sed -i 's|/usr/local/sbin/sendroutestocq$|# Disabled by tarpn-mon: /usr/local/sbin/sendroutestocq|' "$STATUS_MON"
+        sed -i 's|^\(\s*\)\(.*/sendroutestocq\s*$\)|# Disabled by tarpn-mon: \2|' "$STATUS_MON"
         # 3. The check_process call (prevent false "redundantly running" errors)
         sed -i 's|check_process "sendroutestocq"|# Disabled by tarpn-mon: check_process "sendroutestocq"|' "$STATUS_MON"
 
@@ -1123,6 +1124,56 @@ upgrade_linbpq() {
 }
 
 # =============================================================================
+# Configure OARC API (session tracking)
+# =============================================================================
+# LinBPQ's OARC API provides structured JSON events for session tracking.
+# It sends UDP datagrams to node-api.packet.oarc.uk:13579. We redirect
+# that hostname to localhost via /etc/hosts so tarpn-mon receives them.
+
+configure_oarc_api() {
+    log_step "Configuring OARC API for session tracking..."
+
+    local bpq_cfg="${BPQ_CONFIG_DIR}/bpq32.cfg"
+    local hosts_file="/etc/hosts"
+    local oarc_host="node-api.packet.oarc.uk"
+
+    # 1. Redirect OARC hostname to localhost FIRST — must happen before enabling
+    #    the API in bpq32.cfg to ensure no data is sent to the remote server.
+    if grep -q "$oarc_host" "$hosts_file" 2>/dev/null; then
+        log_info "/etc/hosts already has $oarc_host entry"
+    else
+        if [ "$DRY_RUN" = true ]; then
+            log_info "[DRY-RUN] Would add '127.0.0.1 $oarc_host' to $hosts_file"
+        else
+            echo "127.0.0.1 $oarc_host" >> "$hosts_file"
+            log_info "Added '127.0.0.1 $oarc_host' to $hosts_file"
+        fi
+    fi
+
+    # 2. Add ENABLEOARCAPI=1 to bpq32.cfg (safe now that hosts redirect is in place)
+    if [ -f "$bpq_cfg" ]; then
+        if grep -qi "ENABLEOARCAPI" "$bpq_cfg"; then
+            log_info "ENABLEOARCAPI already present in bpq32.cfg"
+        else
+            if [ "$DRY_RUN" = true ]; then
+                log_info "[DRY-RUN] Would add ENABLEOARCAPI=1 to $bpq_cfg"
+            else
+                # Insert after the NODECALL line (or at top of file if not found)
+                if grep -qi "^NODECALL=" "$bpq_cfg"; then
+                    sed -i '/^NODECALL=/a ENABLEOARCAPI=1' "$bpq_cfg"
+                else
+                    # Prepend to file
+                    sed -i '1i ENABLEOARCAPI=1' "$bpq_cfg"
+                fi
+                log_info "Added ENABLEOARCAPI=1 to $bpq_cfg"
+            fi
+        fi
+    else
+        log_warn "bpq32.cfg not found at $bpq_cfg - OARC API will be configured on next TARPN restart"
+    fi
+}
+
+# =============================================================================
 # Post-install summary
 # =============================================================================
 
@@ -1140,6 +1191,11 @@ print_summary() {
         echo "  Web UI:    http://$(hostname -I | awk '{print $1}'):${TARPN_MON_PORT}"
         echo "  Config:    ${TARPN_MON_DIR}/tarpn-mon.env"
         echo "  Logs:      /var/log/tarpn-mon.log"
+        echo ""
+        echo "OARC API (session tracking):"
+        echo "  bpq32.cfg: ENABLEOARCAPI=1"
+        echo "  /etc/hosts: 127.0.0.1 node-api.packet.oarc.uk"
+        echo "  UDP port:  13579 (tarpn-mon listens here)"
         echo ""
         echo "send-routes-via-cq:"
         echo "  Timer:     $(systemctl is-active send-routes-via-cq.timer 2>/dev/null || echo 'not running')"
@@ -1192,6 +1248,7 @@ main() {
     # Install components
     if [ "$INSTALL_MON" = true ]; then
         install_tarpn_mon
+        configure_oarc_api
         install_sendroutesviacq
         patch_sendroutesviacq
     fi

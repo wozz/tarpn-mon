@@ -1,10 +1,12 @@
 import React, { useContext, useState, useRef, memo, useCallback, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { AppContext } from '../context/AppContext';
 import { htmlDecode, encodeNonPrintable } from '../utils/ax25Utils';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FilterBar from '../components/FilterBar';
+import SessionPanel from '../components/SessionPanel';
 
 // Memoized Log Row for Performance
 const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
@@ -28,7 +30,7 @@ const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
                             {prefixText}
                         </Text>
                         {item.isRetry && (
-                            <Text style={styles.retryText}>🔁</Text>
+                            <Text style={[styles.retryText, item.retryType === 'rej' && styles.retryTextRej]}>🔁</Text>
                         )}
                         <Text style={[styles.logRoute, {color: item.routeColor || '#fff'}]}>
                             &nbsp;{item.route}&nbsp;
@@ -62,7 +64,7 @@ const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
                         Port={item.port}
                     </Text>
                     {/* Retry column */}
-                    <Text style={styles.colRetry}>
+                    <Text style={[styles.colRetry, item.isRetry && item.retryType === 'rej' && styles.retryTextRej]}>
                         {item.isRetry ? '🔁' : ''}
                     </Text>
                     {/* Route column */}
@@ -102,14 +104,34 @@ export default function MonitorScreen() {
         loadMoreHistory,
         isLoadingMore,
         hasMoreHistory,
-        bufferInfo
+        bufferInfo,
+        sessions,
+        filterState,
+        setFilterState,
+        showFilterBar,
+        setShowFilterBar,
+        showSessionPanel,
+        setShowSessionPanel,
     } = useContext(AppContext);
     const [selectedMessage, setSelectedMessage] = useState(null);
     const [isAtBottom, setIsAtBottom] = useState(true);
     const flatListRef = useRef(null);
     const insets = useSafeAreaInsets();
+    const { width: screenWidth } = useWindowDimensions();
+    const isWideScreen = screenWidth >= 1024;
 
     const lastScrollY = useRef(0);
+
+    // Count active filters for badge
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (filterState.callsign) count++;
+        if (filterState.frameTypes.length > 0) count++;
+        if (filterState.direction !== 'both') count++;
+        if (filterState.sessionId) count++;
+        if (filterState.hideRetries) count++;
+        return count;
+    }, [filterState]);
 
     const handleScroll = useCallback((event) => {
         const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
@@ -142,18 +164,39 @@ export default function MonitorScreen() {
 
     // Filter Logic
     //
-    // Memoised because this walks the whole log, and the context value it comes
-    // from is rebuilt on every batch - so without this it re-filtered several
-    // times a second whether or not anything relevant had changed. visiblePorts
-    // becomes a Set so the per-message lookup is constant rather than a scan of
-    // every visible port.
+    // visiblePorts becomes a Set so the per-message check is constant rather
+    // than a scan of every visible port - this walks the whole log, and the
+    // context value it comes from is rebuilt on every batch.
     const visiblePortSet = useMemo(() => new Set(visiblePorts), [visiblePorts]);
 
     const filteredMessages = useMemo(() => logMessages.filter(msg => {
         if (settings.hideUSBRoutes && msg.route === "TNC>USB") return false;
         if (msg.port && !visiblePortSet.has(msg.port)) return false;
+
+        // Advanced filters from filterState
+        if (filterState.callsign) {
+            const call = filterState.callsign;
+            const route = (msg.route || '').toUpperCase();
+            if (!route.includes(call)) return false;
+        }
+        if (filterState.frameTypes.length > 0) {
+            const ft = msg.frameType || '';
+            const isOther = !['I', 'UI', 'SABM', 'DISC', 'UA', 'RR', 'REJ'].includes(ft);
+            const match = filterState.frameTypes.includes(ft) ||
+                          (filterState.frameTypes.includes('Other') && isOther);
+            if (!match) return false;
+        }
+        if (filterState.direction !== 'both') {
+            if (filterState.direction === 'tx' && msg.prefix !== 'T') return false;
+            if (filterState.direction === 'rx' && msg.prefix !== 'R') return false;
+        }
+        if (filterState.sessionId) {
+            if (msg.sessionId !== filterState.sessionId) return false;
+        }
+        if (filterState.hideRetries && msg.isRetry) return false;
+
         return true;
-    }), [logMessages, settings.hideUSBRoutes, visiblePortSet]);
+    }), [logMessages, settings.hideUSBRoutes, visiblePortSet, filterState]);
 
     const renderLogItem = useCallback(({ item }) => (
         <LogRow item={item} onPress={setSelectedMessage} getPortColor={getPortColor} compact={settings.compactLayout} />
@@ -165,51 +208,88 @@ export default function MonitorScreen() {
                  <Text style={styles.headerTitle}>Monitor Feed</Text>
                  <View style={styles.headerRight}>
                      <Text style={styles.countText}>{filteredMessages.length} msgs</Text>
-                     <TouchableOpacity onPress={clearLogs} style={styles.clearButton}>
+                     <TouchableOpacity onPress={() => setShowSessionPanel(prev => !prev)} style={styles.headerButton}>
+                        <Ionicons name="git-network-outline" size={16} color={showSessionPanel ? '#4ade80' : '#aaa'} />
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={() => setShowFilterBar(prev => !prev)} style={styles.headerButton}>
+                        <Ionicons name="filter-outline" size={16} color={showFilterBar ? '#4ade80' : '#aaa'} />
+                        {activeFilterCount > 0 && (
+                            <View style={styles.filterBadge}>
+                                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                            </View>
+                        )}
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={clearLogs} style={styles.headerButton}>
                         <Ionicons name="trash-outline" size={16} color="#aaa" />
                      </TouchableOpacity>
                  </View>
             </View>
-            
-            <FlashList
-                ref={flatListRef}
-                data={filteredMessages}
-                renderItem={renderLogItem}
-                keyExtractor={(item) => item.id.toString()}
-                estimatedItemSize={28}
-                contentContainerStyle={{ paddingBottom: 60 }}
-                onScroll={handleScroll}
-                onScrollBeginDrag={() => {
-                    if (settings.autoScroll) {
-                        setSettings(prev => ({ ...prev, autoScroll: false }));
-                    }
-                }}
-                scrollEventThrottle={16}
-                onContentSizeChange={() => {
-                    if (settings.autoScroll && filteredMessages.length > 0) {
-                        flatListRef.current?.scrollToEnd({ animated: false });
-                    }
-                }}
-                ListHeaderComponent={
-                    isLoadingMore ? (
-                        <View style={styles.loadingMoreContainer}>
-                            <ActivityIndicator size="small" color="#4ade80" />
-                            <Text style={styles.loadingMoreText}>Loading older messages...</Text>
-                        </View>
-                    ) : hasMoreHistory ? (
-                        <TouchableOpacity
-                            style={styles.loadMoreButton}
-                            onPress={() => loadMoreHistory()}
-                        >
-                            <Text style={styles.loadMoreText}>Load older messages</Text>
-                        </TouchableOpacity>
-                    ) : bufferInfo.count > 0 ? (
-                        <View style={styles.noMoreContainer}>
-                            <Text style={styles.noMoreText}>Beginning of buffer</Text>
-                        </View>
-                    ) : null
-                }
+            {!isWideScreen && (
+                <SessionPanel
+                    sessions={sessions}
+                    filterState={filterState}
+                    setFilterState={setFilterState}
+                    visible={showSessionPanel}
+                />
+            )}
+            <FilterBar
+                filterState={filterState}
+                setFilterState={setFilterState}
+                visible={showFilterBar}
             />
+
+            <View style={isWideScreen && showSessionPanel ? styles.mainRow : styles.mainFill}>
+                <View style={{ flex: 1 }}>
+                    <FlashList
+                        ref={flatListRef}
+                        data={filteredMessages}
+                        renderItem={renderLogItem}
+                        keyExtractor={(item) => item.id.toString()}
+                        estimatedItemSize={28}
+                        contentContainerStyle={{ paddingBottom: 60 }}
+                        onScroll={handleScroll}
+                        onScrollBeginDrag={() => {
+                            if (settings.autoScroll) {
+                                setSettings(prev => ({ ...prev, autoScroll: false }));
+                            }
+                        }}
+                        scrollEventThrottle={16}
+                        onContentSizeChange={() => {
+                            if (settings.autoScroll && filteredMessages.length > 0) {
+                                flatListRef.current?.scrollToEnd({ animated: false });
+                            }
+                        }}
+                        ListHeaderComponent={
+                            isLoadingMore ? (
+                                <View style={styles.loadingMoreContainer}>
+                                    <ActivityIndicator size="small" color="#4ade80" />
+                                    <Text style={styles.loadingMoreText}>Loading older messages...</Text>
+                                </View>
+                            ) : hasMoreHistory ? (
+                                <TouchableOpacity
+                                    style={styles.loadMoreButton}
+                                    onPress={() => loadMoreHistory()}
+                                >
+                                    <Text style={styles.loadMoreText}>Load older messages</Text>
+                                </TouchableOpacity>
+                            ) : bufferInfo.count > 0 ? (
+                                <View style={styles.noMoreContainer}>
+                                    <Text style={styles.noMoreText}>Beginning of buffer</Text>
+                                </View>
+                            ) : null
+                        }
+                    />
+                </View>
+                {isWideScreen && (
+                    <SessionPanel
+                        sessions={sessions}
+                        filterState={filterState}
+                        setFilterState={setFilterState}
+                        visible={showSessionPanel}
+                        sidebar
+                    />
+                )}
+            </View>
 
             {!isAtBottom && !settings.autoScroll && (
                 <TouchableOpacity 
@@ -271,6 +351,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1e1e1e',
   },
+  mainRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  mainFill: {
+    flex: 1,
+  },
   headerBar: {
       paddingHorizontal: 15,
       paddingBottom: 10,
@@ -295,8 +382,26 @@ const styles = StyleSheet.create({
       fontSize: 12,
       marginRight: 10
   },
-  clearButton: {
+  headerButton: {
       padding: 5,
+      marginLeft: 4,
+      position: 'relative',
+  },
+  filterBadge: {
+      position: 'absolute',
+      top: 0,
+      right: -2,
+      backgroundColor: '#ef4444',
+      borderRadius: 6,
+      width: 12,
+      height: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
+  },
+  filterBadgeText: {
+      color: '#fff',
+      fontSize: 8,
+      fontWeight: 'bold',
   },
   logRow: {
     flexDirection: 'row',
@@ -338,7 +443,10 @@ const styles = StyleSheet.create({
   retryText: {
       fontSize: 12,
       marginHorizontal: 2,
-      color: '#fbbf24' // Warning color
+      color: '#fbbf24', // Warning color (timeout retries)
+  },
+  retryTextRej: {
+      color: '#ef4444', // Red for REJ retries
   },
   // Fixed-width column styles for standard (non-compact) mode
   colDirection: {

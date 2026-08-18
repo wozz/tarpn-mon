@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -20,16 +19,6 @@ func insertRaw(t *testing.T, s *LinkStatsStorage, ts time.Time, port int, rxed, 
 	if err != nil {
 		t.Fatalf("insert raw: %v", err)
 	}
-}
-
-func newTestStorage(t *testing.T) *LinkStatsStorage {
-	t.Helper()
-	s, err := NewLinkStatsStorage(filepath.Join(t.TempDir(), "linkstats.db"))
-	if err != nil {
-		t.Fatalf("open storage: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
 }
 
 // Raw samples from completed hours must turn into hourly rows the moment

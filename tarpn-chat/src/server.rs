@@ -270,9 +270,9 @@ impl ChatServer {
         // broadcast sent here is routed as an ordinary L3 packet addressed to
         // "NODES", fails the destination lookup, and is dropped.
         //
-        // Our destination is registered instead by the npa module, which
-        // issues LinBPQ's "NODES ADD" sysop command over the telnet port. See
-        // docs/DESIGN.md, "Advertising the chat node".
+        // Our destination is declared instead by tarpn-bpq-seed-nodes, which
+        // writes a NODE ADD line into BPQNODES.dat before the engine starts.
+        // See docs/DESIGN.md, "Advertising the chat node".
 
         // Peer connection tracking with retry/backoff
         let mut peer_states: Vec<PeerConnectionState> = self.config.peers.iter()

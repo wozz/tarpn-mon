@@ -54,3 +54,6 @@ tarpn-terminal/web/static/js/canvaskit.wasm
 tarpn-chat/docker-testnet/rce-test/linbpq
 tarpn-chat/docker-testnet/rce-test/*.pid
 tarpn-chat/docker-testnet/rce-test/system_addr.txt
+
+# Cloned reference specs
+node-api-spec/

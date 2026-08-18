@@ -25,6 +25,8 @@ var (
 	storageLog   *zap.SugaredLogger
 	statsLog     *zap.SugaredLogger
 	neighborLog  *zap.SugaredLogger
+	oarcLog      *zap.SugaredLogger
+	sessionLog   *zap.SugaredLogger
 )
 
 func init() {
@@ -53,6 +55,8 @@ func init() {
 	storageLog = baseLogger.Named("STORAGE").Sugar()
 	statsLog = baseLogger.Named("STATS").Sugar()
 	neighborLog = baseLogger.Named("NEIGHBOR").Sugar()
+	oarcLog = baseLogger.Named("OARC").Sugar()
+	sessionLog = baseLogger.Named("SESSION").Sugar()
 }
 
 // SetDebugLogging enables or disables debug logging globally

@@ -1,0 +1,11 @@
+[Unit]
+Description=RX TARPNSTAT background service  see /var/log/tarpn_rxtarpnstat_service.log
+
+[Service]
+ExecStart=/usr/tarpn/sbin/rx_tarpnstat.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

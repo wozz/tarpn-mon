@@ -27,10 +27,9 @@ type LinkStatsCollectorConfig struct {
 	// DisableCQ suppresses the [LS1] link-stats CQ broadcast, sent on every
 	// RF port every 10 minutes.
 	DisableCQ bool
-	// DisableBulletin suppresses the daily "SB STATS @" BBS bulletin. Whether
-	// that goes any further than the local BBS is up to that BBS's forwarding
-	// rules; TARPN setups generally forward only specific @<tag>
-	// designators, so a bare @ stays local.
+	// DisableBulletin suppresses the daily BBS bulletins. Whether those go any
+	// further than the local BBS is up to that BBS's forwarding rules; TARPN
+	// setups generally forward only specific @<tag> designators.
 	DisableBulletin bool
 }
 
@@ -427,14 +426,24 @@ func (c *LinkStatsCollector) sendDailyBulletin() {
 		"dayStart", dayStart.Format(time.RFC3339),
 		"dayEnd", dayEnd.Format(time.RFC3339))
 
-	// Bulletin 1: Hourly intervals from compacted data
+	// Bulletin 1: Hourly intervals from compacted data (LS1H)
 	c.sendHourlyBulletin(dayStart, dayEnd, sys)
 
 	// Delay between bulletins to avoid LinBPQ rejecting rapid connections
 	time.Sleep(5 * time.Second)
 
-	// Bulletin 2: 5-minute intervals from raw data
+	// Bulletin 2: 15-minute intervals from raw data (LS15M)
+	c.send15MinBulletin(dayStart, dayEnd, sys)
+
+	time.Sleep(5 * time.Second)
+
+	// Bulletin 3: 5-minute intervals from raw data (LS5M)
 	c.send5MinBulletin(dayStart, dayEnd, sys)
+
+	time.Sleep(5 * time.Second)
+
+	// Bulletin 4: Per-link 5-minute intervals (LLS5M × N ports)
+	c.sendPerLinkBulletins(dayStart, dayEnd, sys)
 }
 
 // sendHourlyBulletin sends a bulletin with hourly interval summaries for [dayStart, dayEnd).
@@ -483,7 +492,56 @@ func (c *LinkStatsCollector) sendHourlyBulletin(dayStart, dayEnd time.Time, sys 
 		"ports", len(ports),
 		"encodedLen", len(encoded))
 
-	c.sendBBSBulletin(subject, encoded)
+	c.sendBBSBulletin("LS1H", subject, encoded)
+}
+
+// send15MinBulletin sends a bulletin with 15-minute interval summaries for [dayStart, dayEnd).
+func (c *LinkStatsCollector) send15MinBulletin(dayStart, dayEnd time.Time, sys BulletinSystemStats) {
+	portNums, err := c.storage.GetRawPortNumbersRange(dayStart, dayEnd)
+	if err != nil || len(portNums) == 0 {
+		statsLog.Warnw("15-min bulletin: no raw data available", "error", err)
+		return
+	}
+
+	ports := make(map[int][]BulletinInterval)
+	for _, pn := range portNums {
+		summaries, err := c.storage.Get15MinSummaryRange(pn, dayStart, dayEnd)
+		if err != nil {
+			statsLog.Warnw("15-min bulletin: failed to get summary", "port", pn, "error", err)
+			continue
+		}
+		intervals := make([]BulletinInterval, len(summaries))
+		for i, h := range summaries {
+			intervals[i] = BulletinInterval{
+				DeltaRxed:      clampU16(h.DeltaL2Rxed),
+				DeltaSent:      clampU16(h.DeltaL2Sent),
+				DeltaTimeouts:  clampU16(h.DeltaL2Timeouts),
+				DeltaRej:       clampU8(h.DeltaREJRxed),
+				DeltaCRC:       clampU8(h.DeltaCRCErrors),
+				DeltaAbandoned: clampU8(h.DeltaAbandoned),
+				AvgTxPct:       uint8(h.AvgTxPct),
+				AvgBusyPct:     uint8(h.AvgBusyPct),
+			}
+		}
+		ports[pn] = intervals
+	}
+
+	if len(ports) == 0 {
+		statsLog.Warnw("15-min bulletin: no port data to send")
+		return
+	}
+
+	encoded := EncodeBulletin(sys, ports, 15)
+	subject := fmt.Sprintf("LS15M %s %s %s",
+		c.config.Callsign,
+		dayStart.Format("2006-01-02"),
+		dayStart.Format("15:04"))
+
+	statsLog.Infow("15-min bulletin encoded",
+		"ports", len(ports),
+		"encodedLen", len(encoded))
+
+	c.sendBBSBulletin("LS15M", subject, encoded)
 }
 
 // send5MinBulletin sends a bulletin with 5-minute interval summaries for [dayStart, dayEnd).
@@ -523,7 +581,7 @@ func (c *LinkStatsCollector) send5MinBulletin(dayStart, dayEnd time.Time, sys Bu
 	}
 
 	encoded := EncodeBulletin(sys, ports, 5)
-	subject := fmt.Sprintf("LS1D %s %s %s",
+	subject := fmt.Sprintf("LS5M %s %s %s",
 		c.config.Callsign,
 		dayStart.Format("2006-01-02"),
 		dayStart.Format("15:04"))
@@ -532,13 +590,84 @@ func (c *LinkStatsCollector) send5MinBulletin(dayStart, dayEnd time.Time, sys Bu
 		"ports", len(ports),
 		"encodedLen", len(encoded))
 
-	c.sendBBSBulletin(subject, encoded)
+	c.sendBBSBulletin("LS5M", subject, encoded)
+}
+
+// sendPerLinkBulletins sends individual per-port 5-minute bulletins for each RF port.
+func (c *LinkStatsCollector) sendPerLinkBulletins(dayStart, dayEnd time.Time, sys BulletinSystemStats) {
+	portNums, err := c.storage.GetRawPortNumbersRange(dayStart, dayEnd)
+	if err != nil || len(portNums) == 0 {
+		statsLog.Warnw("Per-link bulletin: no raw data available", "error", err)
+		return
+	}
+
+	neighbors, err := c.storage.GetNeighborCallsigns(c.config.Callsign)
+	if err != nil {
+		statsLog.Warnw("Per-link bulletin: failed to get neighbor callsigns", "error", err)
+		neighbors = make(map[int]string)
+	}
+
+	for _, pn := range portNums {
+		// Skip NetROM virtual port
+		if pn == 32 {
+			continue
+		}
+
+		summaries, err := c.storage.Get5MinSummaryRange(pn, dayStart, dayEnd)
+		if err != nil {
+			statsLog.Warnw("Per-link bulletin: failed to get summary", "port", pn, "error", err)
+			continue
+		}
+		if len(summaries) == 0 {
+			continue
+		}
+
+		intervals := make([]BulletinInterval, len(summaries))
+		for i, h := range summaries {
+			intervals[i] = BulletinInterval{
+				DeltaRxed:      clampU16(h.DeltaL2Rxed),
+				DeltaSent:      clampU16(h.DeltaL2Sent),
+				DeltaTimeouts:  clampU16(h.DeltaL2Timeouts),
+				DeltaRej:       clampU8(h.DeltaREJRxed),
+				DeltaCRC:       clampU8(h.DeltaCRCErrors),
+				DeltaAbandoned: clampU8(h.DeltaAbandoned),
+				AvgTxPct:       uint8(h.AvgTxPct),
+				AvgBusyPct:     uint8(h.AvgBusyPct),
+			}
+		}
+
+		singlePort := map[int][]BulletinInterval{pn: intervals}
+		encoded := EncodeBulletin(sys, singlePort, 5)
+
+		var subject string
+		if neighborCall, ok := neighbors[pn]; ok {
+			subject = fmt.Sprintf("LLS5M %s %s P%d %s %s",
+				c.config.Callsign, neighborCall, pn,
+				dayStart.Format("2006-01-02"),
+				dayStart.Format("15:04"))
+		} else {
+			subject = fmt.Sprintf("LLS5M %s P%d %s %s",
+				c.config.Callsign, pn,
+				dayStart.Format("2006-01-02"),
+				dayStart.Format("15:04"))
+		}
+
+		statsLog.Infow("Per-link bulletin encoded",
+			"port", pn,
+			"neighbor", neighbors[pn],
+			"encodedLen", len(encoded))
+
+		c.sendBBSBulletin("LLS5M", subject, encoded)
+
+		// Delay between per-port bulletins
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // sendBBSBulletin opens a short-lived telnet connection, enters BBS mode,
-// and sends the encoded bulletin via SB STATS @. Retries up to 3 times
+// and sends the encoded bulletin via SB <toAddr> @. Retries up to 3 times
 // with increasing delays if the connection fails.
-func (c *LinkStatsCollector) sendBBSBulletin(subject, encoded string) {
+func (c *LinkStatsCollector) sendBBSBulletin(toAddr, subject, encoded string) {
 	const maxRetries = 3
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -548,7 +677,7 @@ func (c *LinkStatsCollector) sendBBSBulletin(subject, encoded string) {
 			time.Sleep(delay)
 		}
 
-		err := c.trySendBBSBulletin(subject, encoded)
+		err := c.trySendBBSBulletin(toAddr, subject, encoded)
 		if err == nil {
 			return
 		}
@@ -563,7 +692,7 @@ func (c *LinkStatsCollector) sendBBSBulletin(subject, encoded string) {
 
 // trySendBBSBulletin makes a single attempt to send a BBS bulletin.
 // Returns nil on success, error on failure.
-func (c *LinkStatsCollector) trySendBBSBulletin(subject, encoded string) error {
+func (c *LinkStatsCollector) trySendBBSBulletin(toAddr, subject, encoded string) error {
 	addr := net.JoinHostPort(c.config.Hostname, strconv.Itoa(c.config.Port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
@@ -595,7 +724,7 @@ func (c *LinkStatsCollector) trySendBBSBulletin(subject, encoded string) error {
 
 	// Build and send the complete bulletin in one burst
 	var buf strings.Builder
-	buf.WriteString("SB STATS @\r\n")
+	buf.WriteString(fmt.Sprintf("SB %s @\r\n", toAddr))
 	buf.WriteString(subject)
 	buf.WriteString("\r\n")
 	buf.WriteString(encoded)
@@ -656,12 +785,6 @@ func (c *LinkStatsCollector) runCompaction(ctx context.Context) {
 			// Purge raw data older than 30 days
 			if err := c.storage.PurgeOldRaw(30 * 24 * time.Hour); err != nil {
 				statsLog.Errorw("Raw data purge failed", "error", err)
-			}
-			// TARPNstat broadcasts are recorded whenever the monitor is
-			// connected, independently of this collector, so they need
-			// bounding too. Only the recent window is of any use.
-			if err := c.storage.PurgeOldTARPNStat(30 * 24 * time.Hour); err != nil {
-				statsLog.Errorw("TARPNstat purge failed", "error", err)
 			}
 		}
 	}

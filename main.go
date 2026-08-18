@@ -70,6 +70,9 @@ var (
 	statsNoCQ       bool
 	statsNoBulletin bool
 
+	// OARC listener configuration
+	oarcPort int
+
 	// Debug logging
 	debugMode bool
 )
@@ -107,6 +110,9 @@ type LogMessageData struct {
 	Message    string `json:"message,omitempty"`
 	RouteColor string `json:"routeColor,omitempty"`
 	Raw        string `json:"raw,omitempty"` // For messages not matching the regex
+	SessionID  string `json:"sessionId,omitempty"`
+	FrameType  string `json:"frameType,omitempty"`
+	RetryType  string `json:"retryType,omitempty"`
 }
 
 // TNCDataMessage holds TNC port data and its port number
@@ -345,6 +351,22 @@ func handleConnection(ctx context.Context, conn net.Conn) error {
 						RouteColor: hashCallsign(matches[3]),
 					}
 
+					// Enrich with frame type from control field parsing
+					if parsed := ParseFrameControl(matches[5]); parsed != nil {
+						logMsgData.FrameType = parsed.FrameType
+					}
+
+					// Correlate with session tracker
+					if sessionTrackerRef != nil {
+						routeParts := strings.SplitN(matches[3], ">", 2)
+						if len(routeParts) == 2 {
+							portNum, _ := strconv.Atoi(matches[4])
+							if sess := sessionTrackerRef.FindSessionForFrame(portNum, routeParts[0], routeParts[1]); sess != nil {
+								logMsgData.SessionID = sess.ID
+							}
+						}
+					}
+
 					// Check for TARPN Stats
 					if stat, err := parseTARPNStat(matches[5]); err == nil {
 						tarpnStatLog.Debugw("Parsed TARPNstat", "stat", stat, "port", matches[4])
@@ -466,6 +488,9 @@ func main() {
 	flag.IntVar(&statsInterval, "stats-interval", 60, "stats polling interval in seconds")
 	flag.BoolVar(&statsNoCQ, "stats-no-cq", false, "collect stats but do not broadcast [LS1] link stats via CQ")
 	flag.BoolVar(&statsNoBulletin, "stats-no-bulletin", false, "collect stats but do not post the daily BBS bulletin")
+
+	// OARC listener flag
+	flag.IntVar(&oarcPort, "oarc-port", 13579, "UDP port for OARC API events from LinBPQ")
 
 	// Debug flag
 	flag.BoolVar(&debugMode, "debug", false, "enable verbose debug logging")
@@ -611,6 +636,16 @@ func main() {
 			"callsign", statsCall, "host", hostname, "port", statsPort, "interval", interval)
 		go collector.Run(ctx)
 	}
+
+	// Initialize session tracker and OARC listener
+	sessionTracker := NewSessionTracker(200, BroadcastSessionUpdate, sessionLog)
+	sessionTrackerRef = sessionTracker
+	oarcListener := NewOARCListener(oarcPort, sessionTracker, oarcLog)
+	go func() {
+		if err := oarcListener.Start(ctx); err != nil {
+			mainLog.Errorw("OARC listener failed", "error", err)
+		}
+	}()
 
 	// Start the HTTP server
 	go func() {
