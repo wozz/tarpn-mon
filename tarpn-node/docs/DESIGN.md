@@ -133,15 +133,40 @@ enough to stop everything. Overriding the server names is.
 
 `OpenReportingSockets()` starts a resolver thread unconditionally, and that
 thread looks up all three names whether or not anything will be sent, retrying
-every five minutes while they fail. Overriding the first two leaves only the
-OARC lookup, and `NodeAPIServer` has no override directive — so that one DNS
-query cannot be suppressed from the config at all. Nothing is *sent* there
-without `ENABLEOARCAPI`, which stays off. If even the lookup matters, point it
-at nothing:
+every five minutes while they fail. Overriding the first two leaves the OARC
+lookup, and `NodeAPIServer` has no override directive — which is why that one
+is handled differently.
+
+### The OARC API is used, not just blocked
+
+LinBPQ's OARC API is the only way it reports AX.25 session state: session up
+and down, connects, disconnects, as UDP JSON to `node-api.packet.oarc.uk:13579`.
+The monitor's session filters and the session panel are built on that data, and
+there is no other source for it.
+
+Since the hostname cannot be overridden in the config, it is resolved locally
+instead. `tarpn-oarc-redirect` puts one line in `/etc/hosts`:
 
 ```
-echo '127.0.0.1 node-api.packet.oarc.uk' | sudo tee -a /etc/hosts
+127.0.0.1 node-api.packet.oarc.uk
 ```
+
+so the events are delivered to `tarpn-mon` on this machine, and the DNS lookups
+stop as well. `SESSION_TRACKING` in `node.conf` controls it, on by default.
+
+**The order is the safety property.** Enabling `ENABLEOARCAPI` without the
+redirect would send this node's session activity to a third party, so nothing
+assumes the redirect is there:
+
+- the redirect runs as an `ExecStartPre` **before** the generator, with `+` so
+  it runs as root while the engine itself stays unprivileged
+- `tarpn-bpq-genconfig` greps `/etc/hosts` and refuses to emit `ENABLEOARCAPI`
+  if the entry is absent, warning instead
+
+So the failure mode is session tracking quietly off, never data leaving the
+node. Turning `SESSION_TRACKING` off removes both the directive and the
+`/etc/hosts` line — but only if we added it: the line carries a marker, and one
+the operator wrote themselves is left alone.
 
 ### AX.25 v2.2 and XID
 

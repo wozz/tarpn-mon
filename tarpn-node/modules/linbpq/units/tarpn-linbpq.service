@@ -25,6 +25,11 @@ WorkingDirectory=@BPQ_HOME@
 # invalid the generator exits non-zero and systemd refuses to start the
 # service, leaving the previous bpq32.cfg untouched. The legacy script
 # rebooted the Pi in this situation.
+# Runs before the generator, and with "+" so it runs as root: the service
+# itself runs unprivileged and /etc/hosts is not writable to it. The generator
+# refuses to enable the OARC API unless this has put the redirect in place, so
+# the ordering is what keeps session data on the machine.
+ExecStartPre=+@TARPN_PREFIX@/modules/linbpq/bin/tarpn-oarc-redirect
 ExecStartPre=@TARPN_PREFIX@/modules/linbpq/bin/tarpn-bpq-genconfig
 # Declares the chat node as a NetROM destination in BPQNODES.dat, which is read
 # during startup. Doing it here rather than at runtime means the destination is

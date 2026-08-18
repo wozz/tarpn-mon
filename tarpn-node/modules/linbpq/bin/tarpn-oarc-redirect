@@ -1,0 +1,80 @@
+#!/bin/bash
+# tarpn-oarc-redirect - point LinBPQ's OARC API at this machine.
+#
+# LinBPQ can emit structured JSON events - session up/down, connects,
+# disconnects - through what it calls the OARC API, as UDP datagrams to
+# node-api.packet.oarc.uk:13579. tarpn-mon listens for those locally and uses
+# them to track AX.25 sessions, which is what the monitor's session filters and
+# the session panel are built on. There is no other source for that data:
+# ENABLEOARCAPI is the only way LinBPQ reports session state.
+#
+# The hostname is not configurable. `NodeAPIServer` has no override directive,
+# unlike NODEMAPSERVER and CHATMAPSERVER, so the only way to keep those events
+# on the machine is to resolve the name here:
+#
+#     127.0.0.1 node-api.packet.oarc.uk
+#
+# Order matters, and is the whole reason this is a separate step that runs
+# first. Enabling ENABLEOARCAPI without the redirect in place would send this
+# node's session activity to a third party on the internet. tarpn-bpq-genconfig
+# therefore refuses to emit ENABLEOARCAPI unless it can see this entry, so the
+# failure mode is "session tracking quietly off", never "data left the node".
+#
+# /etc/hosts is not ours, so only the one line is touched, it carries a marker
+# identifying who added it, and it is never rewritten wholesale.
+
+set -euo pipefail
+
+TARPN_PREFIX="${TARPN_PREFIX:-/opt/tarpn}"
+. "${TARPN_PREFIX}/lib/tarpn-common.sh"
+
+HOSTS_FILE="${TARPN_HOSTS_FILE:-/etc/hosts}"
+OARC_HOST="node-api.packet.oarc.uk"
+MARKER="# tarpn-mon: keep LinBPQ's OARC session events on this machine"
+ENTRY="127.0.0.1 ${OARC_HOST}"
+
+want="$(conf_get "$TARPN_NODE_CONF" SESSION_TRACKING true)"
+
+case "$want" in
+    true|yes|on|1) want=true ;;
+    *)             want=false ;;
+esac
+
+present=false
+if [ -f "$HOSTS_FILE" ] && grep -qE "^[[:space:]]*127\.0\.0\.1[[:space:]]+${OARC_HOST}([[:space:]]|$)" "$HOSTS_FILE"; then
+    present=true
+fi
+
+if [ "$want" = true ]; then
+    [ "$present" = true ] && exit 0
+    if [ "$TARPN_DRY_RUN" = true ]; then
+        log_dim "would add '${ENTRY}' to ${HOSTS_FILE}"
+        exit 0
+    fi
+    printf '%s\n%s\n' "$MARKER" "$ENTRY" >> "$HOSTS_FILE"
+    log_info "Pointed ${OARC_HOST} at localhost in $(basename "$HOSTS_FILE")"
+    log_dim "LinBPQ's session events now reach tarpn-mon instead of the internet"
+    exit 0
+fi
+
+# Turned off: take our line back out, but only the one we added. A line the
+# operator wrote themselves has no marker above it and is left alone.
+[ "$present" = true ] || exit 0
+if [ "$TARPN_DRY_RUN" = true ]; then
+    log_dim "would remove the ${OARC_HOST} redirect from ${HOSTS_FILE}"
+    exit 0
+fi
+if ! grep -qF "$MARKER" "$HOSTS_FILE"; then
+    log_warn "${OARC_HOST} is redirected in ${HOSTS_FILE} but not by us; leaving it"
+    exit 0
+fi
+tmp="$(mktemp "${HOSTS_FILE}.XXXXXX")"
+awk -v marker="$MARKER" -v host="$OARC_HOST" '
+    $0 == marker { skip = 1; next }
+    skip && $1 == "127.0.0.1" && $2 == host { skip = 0; next }
+    { skip = 0; print }
+' "$HOSTS_FILE" > "$tmp"
+chmod --reference="$HOSTS_FILE" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
+cat "$tmp" > "$HOSTS_FILE"          # preserve the inode; /etc/hosts may be bind-mounted
+rm -f "$tmp"
+log_info "Removed the ${OARC_HOST} redirect from $(basename "$HOSTS_FILE")"

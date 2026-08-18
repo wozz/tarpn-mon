@@ -79,3 +79,8 @@ if [ -f "$TARPN_NODE_CONF" ] && [ "$TARPN_DRY_RUN" != true ]; then
         log_warn "node.conf is not valid yet; edit it and run 'tarpnctl apply'"
     fi
 fi
+
+# Put the OARC redirect in place before anything validates the config: the
+# generator leaves ENABLEOARCAPI out unless it can see the /etc/hosts entry, so
+# without this session tracking would stay off until the next restart.
+. "$(module_dir linbpq)/hooks/configure"

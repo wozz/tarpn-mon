@@ -1,0 +1,14 @@
+#!/bin/bash
+# linbpq/configure - keep the OARC redirect in step with node.conf.
+#
+# Run by `tarpnctl apply`. The engine's ExecStartPre runs the same script, so
+# this is not what makes it work at boot - it is here so that toggling
+# SESSION_TRACKING takes effect on apply even when the engine is stopped, and
+# so that turning it off takes the /etc/hosts line back out promptly rather
+# than at the next restart.
+set -euo pipefail
+
+_lb_redirect="$(module_dir linbpq)/bin/tarpn-oarc-redirect"
+if [ -x "$_lb_redirect" ]; then
+    "$_lb_redirect" || log_warn "could not update the OARC redirect in /etc/hosts"
+fi

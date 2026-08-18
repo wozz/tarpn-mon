@@ -166,6 +166,33 @@ case "$CHAT_PROVIDER" in
         ;;
 esac
 
+# LinBPQ's OARC API is the only way it reports AX.25 session state, which is
+# what the monitor's session filters and the session panel are built on. It
+# emits those events as UDP to node-api.packet.oarc.uk, and unlike the map
+# servers that hostname has no override directive - so the only way to keep
+# them on the machine is the /etc/hosts entry tarpn-oarc-redirect writes.
+#
+# Enabling the API without that entry would send this node's session activity
+# to a third party, so the redirect is verified here rather than assumed. If it
+# is missing the directive is left out and the operator is told: the failure
+# mode is session tracking quietly off, never data leaving the node.
+_oarc_host="node-api.packet.oarc.uk"
+_hosts_file="${TARPN_HOSTS_FILE:-/etc/hosts}"
+case "$(nc SESSION_TRACKING true)" in
+    true|yes|on|1)
+        if grep -qE "^[[:space:]]*127\.0\.0\.1[[:space:]]+${_oarc_host}([[:space:]]|$)" \
+                "$_hosts_file" 2>/dev/null; then
+            tok oarcapi ""
+        else
+            tok oarcapi ";"
+            log_warn "SESSION_TRACKING is on but ${_oarc_host} is not redirected in ${_hosts_file}"
+            log_dim "leaving ENABLEOARCAPI out rather than sending session data off the node"
+            log_dim "run 'sudo tarpnctl apply' to add the redirect, or set SESSION_TRACKING=false"
+        fi
+        ;;
+    *)  tok oarcapi ";" ;;
+esac
+
 # LinBPQ reports this node to G8BPQ's map servers. The node map report goes to
 # update.g8bpq.net:81 whenever LOCATOR is set, and the chat report is set up
 # regardless of LOCATOR. Both server names are overridable, so pointing them

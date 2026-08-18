@@ -455,7 +455,7 @@ func main() {
 	flag.StringVar(&hostname, "host", "localhost", "hostname to connect to")
 	flag.IntVar(&targetPort, "target-port", 8011, "target port to connect to on the host (FBB telnet port for monitor)")
 	flag.IntVar(&numPorts, "ports", 12, "number of ports to monitor")
-	flag.IntVar(&bufferSize, "buffer-size", 5000, "number of lines to store in the memory buffer")
+	flag.IntVar(&bufferSize, "buffer-size", 20000, "number of lines to store in the memory buffer")
 	flag.BoolVar(&enableConsoleOutput, "console-out", false, "emit lines from monitor to console")
 	flag.BoolVar(&debugInfo, "debug-info", false, "emit binary debug info")
 	flag.BoolVar(&versionInfo, "version", false, "display version string")

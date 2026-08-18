@@ -35,6 +35,19 @@ LATLON=
 # that cannot be suppressed this way.
 MAP_REPORTING=false
 
+# Track AX.25 sessions, which drives the monitor's session filters and the
+# session panel in the web interface.
+#
+# The only way LinBPQ reports session state is its OARC API, which sends UDP
+# events to node-api.packet.oarc.uk. That hostname has no override directive,
+# so `node-api.packet.oarc.uk` is pointed at 127.0.0.1 in /etc/hosts and the
+# events are delivered to tarpn-mon here instead. Nothing is sent off the
+# machine, and the redirect also stops the DNS lookups for the name.
+#
+# Setting this false removes that /etc/hosts line and leaves ENABLEOARCAPI out
+# of bpq32.cfg. The API is never enabled without the redirect in place.
+SESSION_TRACKING=true
+
 # Connect text, shown to incoming connections.
 CTEXT=Welcome to the MYNODE node
 
