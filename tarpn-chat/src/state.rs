@@ -408,6 +408,24 @@ impl ServerState {
         }
     }
 
+    /// Apply a user's name/QTH update.
+    ///
+    /// Only ever an update: Join is what introduces a user, and an Info for
+    /// someone we have not seen is either out of order or from a node whose
+    /// Join we missed. Inserting on it would create a user with no circuit,
+    /// which nothing would then clean up when their node goes away.
+    pub fn set_user_info(&mut self, call: &str, node_call: &str, name: &str, qth: &str) -> bool {
+        let key = format!("{}@{}", call, node_call);
+        match self.users.get_mut(&key) {
+            Some(user) => {
+                user.name = name.into();
+                user.qth = qth.into();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Remove a user
     pub fn remove_user(&mut self, call: &str, node_call: &str) {
         let key = format!("{}@{}", call, node_call);
@@ -523,5 +541,51 @@ mod tests {
         let forward = state.get_forward_circuits("N0XYZ", c2_id);
         assert_eq!(forward.len(), 1);
         assert!(forward.contains(&c1_id));
+    }
+}
+
+#[cfg(test)]
+mod user_info_tests {
+    use super::*;
+
+    // A user's name and QTH must be updatable after they join. Both halves of
+    // this were broken: SetInfo updated only the local client record, so a peer
+    // connecting later was announced the join-time values out of this table,
+    // and an incoming Info was logged and discarded, so peers already connected
+    // never applied a change either. The result was that an operator editing
+    // their details saw the new ones locally while everyone else kept the old.
+    #[test]
+    fn set_user_info_updates_an_existing_user() {
+        let mut st = ServerState::new("WA2M-9".into(), "ZA2M09".into());
+        st.add_user("WA2M", "WA2M-9", "Mike", "Raleigh", 1);
+
+        assert!(st.set_user_info("WA2M", "WA2M-9", "Mike K", "Durham"));
+
+        let u = st.users.get("WA2M@WA2M-9").expect("user still present");
+        assert_eq!(u.name, "Mike K");
+        assert_eq!(u.qth, "Durham");
+    }
+
+    // Only ever an update. Join introduces a user; inserting here would create
+    // one with no circuit, which nothing cleans up when their node goes away.
+    #[test]
+    fn set_user_info_ignores_an_unknown_user() {
+        let mut st = ServerState::new("WA2M-9".into(), "ZA2M09".into());
+        assert!(!st.set_user_info("NOBODY", "N0CALL-9", "Ghost", "Nowhere"));
+        assert!(st.users.is_empty());
+    }
+
+    // The topic is kept separately and must survive an info update.
+    #[test]
+    fn set_user_info_leaves_the_topic_alone() {
+        let mut st = ServerState::new("WA2M-9".into(), "ZA2M09".into());
+        st.add_user("WA2M", "WA2M-9", "Mike", "Raleigh", 1);
+        st.set_user_topic("WA2M", "WA2M-9", "testing");
+
+        st.set_user_info("WA2M", "WA2M-9", "Mike K", "Durham");
+
+        let u = st.users.get("WA2M@WA2M-9").unwrap();
+        assert_eq!(u.topic, "testing");
+        assert_eq!(u.name, "Mike K");
     }
 }

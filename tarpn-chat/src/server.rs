@@ -1037,6 +1037,16 @@ impl ChatServer {
                 let mut state = self.state.write().await;
                 state.set_user_topic(&t.user, &t.node, &t.topic);
             }
+            // Without this a peer keeps whatever name and QTH arrived in the
+            // Join and never applies a later change, so an operator who edits
+            // either after connecting stays under the old details everywhere
+            // but their own screen.
+            Message::Info(i) => {
+                let mut state = self.state.write().await;
+                if !state.set_user_info(&i.user, &i.node, &i.name, &i.qth) {
+                    debug!("Info for unknown user {}@{}; ignoring", i.user, i.node);
+                }
+            }
             Message::NodeLink(nl) => {
                 let mut state = self.state.write().await;
                 state.add_node_route(circuit_id, &nl.new_node, &nl.alias, nl.version.clone());
@@ -1307,6 +1317,18 @@ impl ChatServer {
                                     }
                                 }
 
+                                // Also update the shared user table, as SetTopic
+                                // does. A peer that connects later is announced
+                                // the existing users out of this table, so
+                                // without it they are told the name and QTH from
+                                // join time and every later edit is invisible to
+                                // them - while local clients, reading
+                                // local_clients, show the new values.
+                                {
+                                    let mut state = self.state.write().await;
+                                    state.set_user_info(&client.user, our_call, &name, &qth);
+                                }
+
                                 let info_msg = Message::Info(crate::protocol::InfoMessage {
                                     node: our_call.to_string(),
                                     user: client.user.clone(),
@@ -1409,7 +1431,7 @@ impl ChatServer {
                 info!("User {} changed to topic {}", t.user, t.topic);
             }
             Message::Info(i) => {
-                debug!("User info update: {} on {}", i.user, i.node);
+                info!("User {} on {} is now {} @ {}", i.user, i.node, i.name, i.qth);
             }
             Message::Keepalive(k) => {
                 debug!("Keepalive from {} to {}", k.src_node, k.dest_node);
