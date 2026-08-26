@@ -73,6 +73,10 @@ WEB_DIST_DIR := $(ROOT_DIR)/web-dist
 $(FRONTEND_DIST): $(FRONTEND_SOURCES) $(FRONTEND_DIR)/package.json
 	@echo "Building frontend..."
 	cd $(FRONTEND_DIR) && npm install --silent
+# Lint before bundling, and fail the build on an error. Metro does not do
+# temporal-dead-zone analysis and no test mounts a screen, so lint is the only
+# thing between a use-before-declaration and a blank page on the node.
+	cd $(FRONTEND_DIR) && npx eslint src/
 # The charts are victory-native on top of @shopify/react-native-skia, and on web
 # Skia loads CanvasKit as WebAssembly at runtime. SkiaCompat.js asks for it at
 # the site root (locateFile returns "/canvaskit.wasm"), but nothing puts it

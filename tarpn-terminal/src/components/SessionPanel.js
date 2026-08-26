@@ -177,8 +177,10 @@ function SessionRow({ session, filterState, setFilterState }) {
 }
 
 export default function SessionPanel({ sessions, filterState, setFilterState, visible, sidebar }) {
-    if (!visible) return null;
-
+    // Every hook must run on every render, so this cannot return early above
+    // them. Toggling the panel would otherwise change the number of hooks
+    // called between renders, which React treats as an error and which takes
+    // the surrounding tree down with it.
     const sortedSessions = useMemo(() => {
         if (!sessions) return [];
         const sorted = [...sessions].sort((a, b) => {
@@ -192,6 +194,8 @@ export default function SessionPanel({ sessions, filterState, setFilterState, vi
         });
         return sorted.slice(0, 50);
     }, [sessions]);
+
+    if (!visible) return null;
 
     if (sidebar) {
         return (
