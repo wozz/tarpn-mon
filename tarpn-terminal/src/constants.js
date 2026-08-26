@@ -21,6 +21,11 @@ export const BATCH_INTERVAL_MS = 200; // Process message queues every 200ms
 // back is not affected.
 export const MAX_LOG_MESSAGES = 20000;
 
+// Per-minute message counters kept for the traffic chart. 48 hours is well
+// past anything plotted; without a bound this grows by 1440 keys a day for as
+// long as the page is open.
+export const MAX_MINUTE_BUCKETS = 2880;
+
 // Pagination settings
 export const INITIAL_MESSAGE_LIMIT = 1000; // Monitor screen initial load
 export const CHAT_MESSAGE_LIMIT = 200; // Chat screen initial/pagination load

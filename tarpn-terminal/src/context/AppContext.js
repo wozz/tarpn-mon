@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { htmlDecode, parseAX25Message } from '../utils/ax25Utils';
@@ -7,6 +7,7 @@ import { DEFAULT_FILTER_STATE } from '../components/FilterBar';
 import {
   BATCH_INTERVAL_MS,
   MAX_LOG_MESSAGES,
+  MAX_MINUTE_BUCKETS,
   RECONNECT_DELAY_MS,
   INITIAL_MESSAGE_LIMIT,
   LOAD_MORE_LIMIT,
@@ -591,6 +592,16 @@ export const AppProvider = ({ children }) => {
                 Object.keys(newCounts).forEach(key => {
                     nextCounts[key] = (nextCounts[key] || 0) + newCounts[key];
                 });
+                // One key per minute, kept for ever otherwise - a page left
+                // open for a week accumulates ten thousand of them, and the
+                // charts only ever plot the recent window.
+                const keys = Object.keys(nextCounts);
+                if (keys.length > MAX_MINUTE_BUCKETS) {
+                    keys.sort();
+                    for (const stale of keys.slice(0, keys.length - MAX_MINUTE_BUCKETS)) {
+                        delete nextCounts[stale];
+                    }
+                }
                 return nextCounts;
             });
 
@@ -668,7 +679,20 @@ export const AppProvider = ({ children }) => {
   }, [visiblePorts]); // Dependency on visiblePorts for the nested update, harmless re-attach
 
   // --- Context Value ---
-  const value = {
+  // Memoised, and it matters more than it looks.
+  //
+  // React re-renders every consumer of a context whenever the value's identity
+  // changes, regardless of which fields that consumer actually reads. This
+  // object was rebuilt on every render, and the provider renders on every
+  // 200ms batch of monitor traffic - so all seven screens re-rendered five
+  // times a second on a busy node, whether or not anything they display had
+  // changed.
+  //
+  // That was tolerable while the charts were not drawing. Now that CanvasKit
+  // loads, a re-render of StatsScreen re-runs Skia for every chart on it, and
+  // WebAssembly memory only ever grows - so the browser reported the tab using
+  // significant memory and eventually reloaded it.
+  const value = useMemo(() => ({
       logMessages,
       tncData,
       isConnected,
@@ -705,7 +729,18 @@ export const AppProvider = ({ children }) => {
       setShowFilterBar,
       showSessionPanel,
       setShowSessionPanel,
-  };
+  }), [
+      logMessages, tncData, isConnected, settings, visiblePorts, uniquePorts,
+      messageCountsByMinute, tarpnStatsHistory, linkStats, linkStatsHistory,
+      neighborStats, features, featureStatus, featureSettings, isLoadingMore,
+      hasMoreHistory, bufferInfo, sessions, filterState, showFilterBar,
+      showSessionPanel,
+      // Setters from useState are stable; these are useCallback'd and listed
+      // so the memo cannot go stale if their dependencies ever change.
+      setSettings, setVisiblePorts, clearLogs, connectFeature, disconnectFeature,
+      refreshFeatureStatus, updateFeatureSettings, loadMoreHistory,
+      setFilterState, setShowFilterBar, setShowSessionPanel,
+  ]);
 
   return (
     <AppContext.Provider value={value}>

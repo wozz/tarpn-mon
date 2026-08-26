@@ -1,4 +1,4 @@
-import React, { useContext, useMemo, useEffect, useState, useCallback, useRef } from 'react';
+import React, { useContext, useMemo, useEffect, useState, useCallback, useRef, memo } from 'react';
 import { StyleSheet, Text, View, ScrollView, Pressable, Platform } from 'react-native';
 import { AppContext } from '../context/AppContext';
 import { getMinuteKey } from '../utils/timeUtils';
@@ -427,7 +427,9 @@ export default function StatsScreen() {
 }
 
 // Expandable chart for a port's hourly L2 stats history
-function PortChart({ portNum, history }) {
+// Memoised because each of these draws through Skia, and re-running that when
+// nothing changed is what makes CanvasKit's WebAssembly heap grow.
+const PortChart = memo(function PortChart({ portNum, history }) {
     const chartData = useMemo(() => {
         if (!history || history.length === 0) return null;
         return history.map((h, idx) => ({
@@ -494,11 +496,11 @@ function PortChart({ portNum, history }) {
             </View>
         </View>
     );
-}
+});
 
 // Expandable chart for neighbor CQ stats over time
 // CQ data contains absolute counters — compute deltas between consecutive readings
-function NeighborChart({ dataPoints }) {
+const NeighborChart = memo(function NeighborChart({ dataPoints }) {
     const chartData = useMemo(() => {
         if (!dataPoints || dataPoints.length < 2) return null;
         const deltas = [];
@@ -573,7 +575,7 @@ function NeighborChart({ dataPoints }) {
             </View>
         </View>
     );
-}
+});
 
 const styles = StyleSheet.create({
     container: {
