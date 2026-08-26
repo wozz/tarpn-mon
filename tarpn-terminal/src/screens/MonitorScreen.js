@@ -1,5 +1,5 @@
-import React, { useContext, useState, useRef, memo, useCallback, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
+import React, { useContext, useState, useRef, memo, useCallback, useMemo, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions, Platform } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { AppContext } from '../context/AppContext';
 import { htmlDecode, encodeNonPrintable } from '../utils/ax25Utils';
@@ -121,6 +121,11 @@ export default function MonitorScreen() {
     const isWideScreen = screenWidth >= 1024;
 
     const lastScrollY = useRef(0);
+    // True while the person is driving the list, as opposed to auto-scroll
+    // moving it. Cleared once they return to the bottom, or shortly after a
+    // wheel gesture stops.
+    const userScrolling = useRef(false);
+    const wheelIdleTimer = useRef(null);
 
     // Count active filters for badge
     const activeFilterCount = useMemo(() => {
@@ -133,6 +138,40 @@ export default function MonitorScreen() {
         return count;
     }, [filterState]);
 
+    // On web a mouse wheel scrolls the list without firing onScrollBeginDrag,
+    // so that gesture would otherwise be indistinguishable from auto-scroll's
+    // own movement. Listening for the wheel directly is what makes "only turn
+    // this off when the user does it" hold on desktop browsers.
+    useEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+        const onWheel = () => {
+            userScrolling.current = true;
+            clearTimeout(wheelIdleTimer.current);
+            // Cleared on a timer because the wheel has no end event. Long
+            // enough to cover the momentum scrolling that follows a flick.
+            wheelIdleTimer.current = setTimeout(() => {
+                userScrolling.current = false;
+            }, 1500);
+        };
+        window.addEventListener('wheel', onWheel, { passive: true });
+        return () => {
+            window.removeEventListener('wheel', onWheel);
+            clearTimeout(wheelIdleTimer.current);
+        };
+    }, []);
+
+    // Re-anchor whenever the message count changes and we are following. The
+    // list can settle without onContentSizeChange firing for every batch, and
+    // when that happened the view fell progressively further behind - which
+    // used to be the thing that switched auto-scroll off.
+    useEffect(() => {
+        if (!settings.autoScroll || filteredMessages.length === 0) return;
+        const id = requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+        });
+        return () => cancelAnimationFrame(id);
+    }, [filteredMessages.length, settings.autoScroll]);
+
     const handleScroll = useCallback((event) => {
         const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
 
@@ -143,22 +182,36 @@ export default function MonitorScreen() {
             loadMoreHistory();
         }
 
-        // Check if near bottom for auto-scroll
-        const paddingToBottom = 50;
+        // Bottom needs more slack than the old 50px. On a busy node rows arrive
+        // while the list is still settling from the last scrollToEnd, so the
+        // view legitimately sits a screenful short of the end for a moment.
+        const paddingToBottom = 250;
         const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
         setIsAtBottom(isCloseToBottom);
 
-        // Detect scroll direction - if scrolling up (away from bottom), disable auto-scroll
-        // This handles web where onScrollBeginDrag doesn't fire for mouse wheel
         const scrollingUp = contentOffset.y < lastScrollY.current;
         lastScrollY.current = contentOffset.y;
 
+        // Only a real gesture may turn auto-scroll off.
+        //
+        // This handler sees programmatic scrolling too - including the
+        // scrollToEnd that auto-scroll itself performs - and cannot tell the
+        // two apart from the event. Acting on every upward movement meant that
+        // when messages arrived faster than the list could settle, the content
+        // grew under the viewport, this read as "scrolled up away from the
+        // bottom", and auto-scroll switched itself off. Falling behind was
+        // exactly the condition that broke it.
+        //
+        // userScrolling is set by onScrollBeginDrag and by the wheel listener
+        // below, so it is true only when the person actually moved the view.
+        if (!userScrolling.current) return;
+
         if (scrollingUp && settings.autoScroll && !isCloseToBottom) {
-            // User is scrolling up away from bottom - disable auto-scroll
             setSettings(prev => ({ ...prev, autoScroll: false }));
         } else if (isCloseToBottom && !settings.autoScroll) {
-            // User scrolled back to bottom - re-enable auto-scroll
+            // Scrolled back to the bottom by hand - resume following.
             setSettings(prev => ({ ...prev, autoScroll: true }));
+            userScrolling.current = false;
         }
     }, [settings.autoScroll, setSettings, hasMoreHistory, isLoadingMore, loadMoreHistory]);
 
@@ -249,12 +302,15 @@ export default function MonitorScreen() {
                         contentContainerStyle={{ paddingBottom: 60 }}
                         onScroll={handleScroll}
                         onScrollBeginDrag={() => {
-                            if (settings.autoScroll) {
-                                setSettings(prev => ({ ...prev, autoScroll: false }));
-                            }
+                            // A touch or drag is unambiguously the user.
+                            userScrolling.current = true;
                         }}
                         scrollEventThrottle={16}
                         onContentSizeChange={() => {
+                            // Keep following the tail. onContentSizeChange can
+                            // be missed while rows are still being measured, so
+                            // the effect below re-anchors on new data as well -
+                            // between them the view does not drift behind.
                             if (settings.autoScroll && filteredMessages.length > 0) {
                                 flatListRef.current?.scrollToEnd({ animated: false });
                             }
