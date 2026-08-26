@@ -160,18 +160,6 @@ export default function MonitorScreen() {
         };
     }, []);
 
-    // Re-anchor whenever the message count changes and we are following. The
-    // list can settle without onContentSizeChange firing for every batch, and
-    // when that happened the view fell progressively further behind - which
-    // used to be the thing that switched auto-scroll off.
-    useEffect(() => {
-        if (!settings.autoScroll || filteredMessages.length === 0) return;
-        const id = requestAnimationFrame(() => {
-            flatListRef.current?.scrollToEnd({ animated: false });
-        });
-        return () => cancelAnimationFrame(id);
-    }, [filteredMessages.length, settings.autoScroll]);
-
     const handleScroll = useCallback((event) => {
         const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
 
@@ -250,6 +238,18 @@ export default function MonitorScreen() {
 
         return true;
     }), [logMessages, settings.hideUSBRoutes, visiblePortSet, filterState]);
+
+    // Re-anchor whenever the message count changes and we are following. The
+    // list can settle without onContentSizeChange firing for every batch, and
+    // when that happened the view fell progressively further behind - which
+    // used to be the thing that switched auto-scroll off.
+    useEffect(() => {
+        if (!settings.autoScroll || filteredMessages.length === 0) return;
+        const id = requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+        });
+        return () => cancelAnimationFrame(id);
+    }, [filteredMessages.length, settings.autoScroll]);
 
     const renderLogItem = useCallback(({ item }) => (
         <LogRow item={item} onPress={setSelectedMessage} getPortColor={getPortColor} compact={settings.compactLayout} />
