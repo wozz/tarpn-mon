@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, Switch } from 'react-native';
+import { MONO_FONT } from '../utils/fonts';
 
 const FRAME_TYPES = ['I', 'UI', 'SABM', 'DISC', 'UA', 'RR', 'REJ', 'Other'];
 const DIRECTIONS = [
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 4,
     fontSize: 11,
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     width: 100,
   },
   separator: {
@@ -195,7 +196,7 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 11,
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     color: '#aaa',
   },
   chipTextActive: {
@@ -207,7 +208,7 @@ const styles = StyleSheet.create({
   },
   switchLabel: {
     fontSize: 11,
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     color: '#aaa',
     marginRight: 4,
   },
@@ -220,7 +221,7 @@ const styles = StyleSheet.create({
   },
   clearText: {
     fontSize: 11,
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     color: '#888',
   },
 });

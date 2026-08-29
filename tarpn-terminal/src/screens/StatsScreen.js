@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, ScrollView, Pressable, Platform } from 'react-n
 import { AppContext } from '../context/AppContext';
 import { getMinuteKey } from '../utils/timeUtils';
 import { SkiaChart } from '../components/SkiaCompat';
+import { MONO_FONT } from '../utils/fonts';
 
 // Tooltip descriptions for L2 stats columns
 const L2_TOOLTIPS = {
@@ -677,7 +678,7 @@ const styles = StyleSheet.create({
     systemStatText: {
         color: '#ccc',
         fontSize: 12,
-        fontFamily: 'monospace',
+        fontFamily: MONO_FONT,
         lineHeight: 20,
     },
     netromPort: {

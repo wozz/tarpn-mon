@@ -6,6 +6,7 @@ import {
     TextInput,
     TouchableOpacity,
     KeyboardAvoidingView,
+    Keyboard,
     Platform,
     ActivityIndicator,
     Modal,
@@ -17,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // AsyncStorage no longer needed — credentials managed by backend
 import { AppContext } from '../context/AppContext';
 import { hashCallsign } from '../utils/colorUtils';
+import { MONO_FONT } from '../utils/fonts';
 
 // Feature credentials are now managed by the backend settings system
 
@@ -314,6 +316,18 @@ export default function ChatScreen() {
         }
     }, [messages.length]);
 
+    // Opening the keyboard shrinks the list, which leaves the newest messages
+    // hidden behind it until the user scrolls. Nothing else re-anchors here:
+    // the effect above only fires when a message arrives.
+    useEffect(() => {
+        const show = Keyboard.addListener('keyboardDidShow', () => {
+            if (messages.length > 0) {
+                setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+            }
+        });
+        return () => show.remove();
+    }, [messages.length]);
+
     const sendMessage = useCallback(() => {
         if (!inputText.trim() || !wsRef.current) return;
         // Check WebSocket is actually open before sending
@@ -553,7 +567,12 @@ export default function ChatScreen() {
                 </View>
             )}
 
-            <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            {/* No insets.bottom here. This screen sits inside the tab navigator and
+                its content area already ends above the tab bar, which is what
+                occupies the bottom safe area - adding the inset again put a
+                gap between the input and the tab bar on devices with a home
+                indicator. Invisible on web, where the inset is zero. */}
+            <View style={styles.inputContainer}>
                 <TextInput
                     ref={inputRef}
                     style={styles.textInput}
@@ -771,7 +790,7 @@ const styles = StyleSheet.create({
         color: '#4ade80',
         fontSize: 12,
         fontWeight: 'bold',
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     userNameInList: {
         color: '#aaa',
@@ -823,12 +842,12 @@ const styles = StyleSheet.create({
     },
     timestamp: {
         color: '#888',
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         fontSize: 12,
         marginRight: 8,
     },
     callsign: {
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         fontSize: 12,
         fontWeight: 'bold',
     },
@@ -887,6 +906,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         paddingHorizontal: 10,
         paddingTop: 10,
+        paddingBottom: 10,
         backgroundColor: '#252525',
         borderTopWidth: 1,
         borderTopColor: '#333',

@@ -16,6 +16,7 @@ import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext';
+import { MONO_FONT } from '../utils/fonts';
 
 // Message type badge colors
 const TYPE_COLORS = {
@@ -744,7 +745,7 @@ const styles = StyleSheet.create({
     messageNumber: {
         color: '#888',
         fontSize: 12,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     newDot: {
         width: 6,
@@ -857,7 +858,7 @@ const styles = StyleSheet.create({
         color: '#ddd',
         fontSize: 14,
         lineHeight: 22,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     // Compose modal styles
     sendHeaderButton: {
@@ -918,6 +919,6 @@ const styles = StyleSheet.create({
         borderColor: '#333',
         fontSize: 14,
         minHeight: 200,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
 });

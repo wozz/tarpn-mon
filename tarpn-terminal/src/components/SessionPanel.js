@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MONO_FONT } from '../utils/fonts';
 
 const formatDuration = (startedAt, endedAt) => {
     if (!startedAt) return '-';
@@ -307,13 +308,13 @@ const sidebarStyles = StyleSheet.create({
     portBadge: {
         color: '#888',
         fontSize: 10,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         marginRight: 6,
     },
     callText: {
         color: '#ccc',
         fontSize: 11,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         flex: 1,
     },
     bottomLine: {
@@ -324,17 +325,17 @@ const sidebarStyles = StyleSheet.create({
     },
     stateText: {
         fontSize: 10,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     dimText: {
         color: '#888',
         fontSize: 10,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     protoText: {
         color: '#6b7280',
         fontSize: 10,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     circuitRow: {
         paddingVertical: 3,
@@ -347,11 +348,11 @@ const sidebarStyles = StyleSheet.create({
     circuitText: {
         color: '#aaa',
         fontSize: 10,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     circuitState: {
         fontSize: 10,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     emptyRow: {
         paddingVertical: 20,
@@ -382,7 +383,7 @@ const styles = StyleSheet.create({
         color: '#888',
         fontSize: 10,
         fontWeight: 'bold',
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     scrollView: {
         flex: 1,
@@ -402,7 +403,7 @@ const styles = StyleSheet.create({
     cellText: {
         color: '#ccc',
         fontSize: 11,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
     },
     expandButton: {
         width: 16,

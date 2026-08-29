@@ -7,11 +7,13 @@ import {
     TouchableOpacity,
     ScrollView,
     KeyboardAvoidingView,
+    Keyboard,
     Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext';
+import { MONO_FONT } from '../utils/fonts';
 
 // Quick action buttons for common node commands
 const QUICK_ACTIONS = [
@@ -307,7 +309,12 @@ export default function NodeScreen() {
             </ScrollView>
 
             {/* Command Input */}
-            <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            {/* No insets.bottom here. This screen sits inside the tab navigator and
+                its content area already ends above the tab bar, which is what
+                occupies the bottom safe area - adding the inset again put a
+                gap between the input and the tab bar on devices with a home
+                indicator. Invisible on web, where the inset is zero. */}
+            <View style={styles.inputContainer}>
                 <View style={styles.historyButtons}>
                     <TouchableOpacity
                         style={styles.historyButton}
@@ -407,7 +414,7 @@ const styles = StyleSheet.create({
     promptText: {
         color: '#888',
         fontSize: 11,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         marginRight: 10,
         maxWidth: 150,
     },
@@ -455,7 +462,7 @@ const styles = StyleSheet.create({
     terminalLine: {
         color: '#ddd',
         fontSize: 12,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         lineHeight: 18,
     },
     promptLine: {
@@ -473,6 +480,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         paddingHorizontal: 10,
         paddingTop: 10,
+        paddingBottom: 10,
         backgroundColor: '#252525',
         borderTopWidth: 1,
         borderTopColor: '#333',
@@ -495,7 +503,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#444',
         fontSize: 14,
-        fontFamily: '"Courier New", Courier, monospace',
+        fontFamily: MONO_FONT,
         marginRight: 10,
     },
     sendButton: {

@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FilterBar from '../components/FilterBar';
 import SessionPanel from '../components/SessionPanel';
+import { MONO_FONT } from '../utils/fonts';
 
 // Memoized Log Row for Performance
 const LogRow = memo(({ item, onPress, getPortColor, compact }) => {
@@ -471,29 +472,29 @@ const styles = StyleSheet.create({
   },
   logTime: {
     color: '#888',
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     marginRight: 8,
     fontSize: 12,
   },
   logPrefix: {
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     fontWeight: 'bold',
     fontSize: 12,
   },
   logRoute: {
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     fontWeight: 'bold',
     fontSize: 12,
   },
   logContent: {
     color: '#ddd',
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: MONO_FONT,
     fontSize: 12,
     flex: 1,
   },
   logRaw: {
       color: '#aaa',
-      fontFamily: '"Courier New", Courier, monospace',
+      fontFamily: MONO_FONT,
       fontSize: 12,
   },
   retryText: {
@@ -506,14 +507,14 @@ const styles = StyleSheet.create({
   },
   // Fixed-width column styles for standard (non-compact) mode
   colDirection: {
-      fontFamily: '"Courier New", Courier, monospace',
+      fontFamily: MONO_FONT,
       fontWeight: 'bold',
       fontSize: 12,
       width: 24, // "Tx" or "Rx"
       textAlign: 'left',
   },
   colPort: {
-      fontFamily: '"Courier New", Courier, monospace',
+      fontFamily: MONO_FONT,
       fontWeight: 'bold',
       fontSize: 12,
       width: 56, // "Port=XX" (up to 2 digit port numbers)
@@ -526,7 +527,7 @@ const styles = StyleSheet.create({
       textAlign: 'center',
   },
   colRoute: {
-      fontFamily: '"Courier New", Courier, monospace',
+      fontFamily: MONO_FONT,
       fontWeight: 'bold',
       fontSize: 12,
       width: 140, // "CALLSIGN-15>CALLSIGN-15" max ~21 chars
@@ -534,7 +535,7 @@ const styles = StyleSheet.create({
   },
   colData: {
       color: '#ddd',
-      fontFamily: '"Courier New", Courier, monospace',
+      fontFamily: MONO_FONT,
       fontSize: 12,
       flex: 1,
   },
@@ -605,7 +606,7 @@ const styles = StyleSheet.create({
   },
   codeText: {
       color: '#89ddff',
-      fontFamily: '"Courier New", Courier, monospace',
+      fontFamily: MONO_FONT,
   },
   closeButton: {
       backgroundColor: '#444',
