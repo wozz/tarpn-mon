@@ -158,7 +158,20 @@ func chatWebsocketHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "send":
 			// Send a chat message
-			if chatClient != nil && cmd.Message != "" {
+			if chatClient == nil {
+				// Chat is not connected. Dropping this silently loses what the
+				// operator typed - the UI has already cleared the input - and
+				// looks from their side like the send button does nothing.
+				errMsg := &ChatMessage{
+					Type:    "chat_error",
+					Message: "Not connected to the chat server. Press Connect first.",
+				}
+				if jsonData, err := json.Marshal(errMsg); err == nil {
+					wc.write(string(jsonData))
+				}
+				continue
+			}
+			if cmd.Message != "" {
 				if err := chatClient.SendMessage(cmd.Message); err != nil {
 					chatLog.Warnw("Failed to send chat message", "error", err)
 					// Send error back to client

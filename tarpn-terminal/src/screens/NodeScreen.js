@@ -231,7 +231,12 @@ export default function NodeScreen() {
         <KeyboardAvoidingView
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+            // No offset. KeyboardAvoidingView measures this view's own bottom
+            // edge, which inside the tab navigator already sits above the tab
+            // bar, so it computes the real overlap by itself. The 90 that used
+            // to be here was added straight on top of that and was exactly the
+            // gap between the keyboard and the input.
+            keyboardVerticalOffset={0}
         >
             <View style={[styles.headerBar, { paddingTop: insets.top + 10 }]}>
                 <View style={styles.headerLeft}>

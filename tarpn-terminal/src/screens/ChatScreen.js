@@ -120,6 +120,8 @@ export default function ChatScreen() {
     const { settings, setSettings, connectFeature, disconnectFeature, featureStatus } = useContext(AppContext);
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
+    // Why a send did not go out, shown above the input rather than swallowed.
+    const [sendError, setSendError] = useState(null);
     const [users, setUsers] = useState([]);
     const [showUserList, setShowUserList] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -292,6 +294,10 @@ export default function ChatScreen() {
     }, [settings.host, settings.port]);
 
     useEffect(() => {
+        if (isConnected) setSendError(null);
+    }, [isConnected]);
+
+    useEffect(() => {
         connectWebSocket();
         return () => {
             if (wsRef.current) wsRef.current.close();
@@ -315,6 +321,14 @@ export default function ChatScreen() {
             console.log("Chat WebSocket not ready, skipping send");
             return;
         }
+        // The socket to the backend can be open while the backend itself is not
+        // attached to the chat server. Sending then goes nowhere, so keep what
+        // was typed rather than clearing it into a message that cannot arrive.
+        if (!isConnected) {
+            setSendError('Not connected to the chat server. Press Connect first.');
+            return;
+        }
+        setSendError(null);
 
         const text = inputText.trim();
         setInputText('');
@@ -330,7 +344,7 @@ export default function ChatScreen() {
         setTimeout(() => {
             inputRef.current?.focus();
         }, 50);
-    }, [inputText]);
+    }, [inputText, isConnected]);
 
     // Connect/disconnect handlers — backend uses stored settings
     const handleConnect = useCallback(() => {
@@ -422,7 +436,12 @@ export default function ChatScreen() {
         <KeyboardAvoidingView
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+            // No offset. KeyboardAvoidingView measures this view's own bottom
+            // edge, which inside the tab navigator already sits above the tab
+            // bar, so it computes the real overlap by itself. The 90 that used
+            // to be here was added straight on top of that and was exactly the
+            // gap between the keyboard and the input.
+            keyboardVerticalOffset={0}
         >
             <View style={[styles.headerBar, { paddingTop: insets.top + 10 }]}>
                 <View style={styles.headerLeft}>
@@ -527,6 +546,12 @@ export default function ChatScreen() {
                     />
                 </View>
             </View>
+
+            {sendError && (
+                <View style={styles.sendErrorBar}>
+                    <Text style={styles.sendErrorText}>{sendError}</Text>
+                </View>
+            )}
 
             <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
                 <TextInput
@@ -845,6 +870,17 @@ const styles = StyleSheet.create({
     thText: {
         color: '#666',
         fontStyle: 'italic',
+        fontSize: 12,
+    },
+    sendErrorBar: {
+        backgroundColor: '#3b1f1f',
+        borderTopWidth: 1,
+        borderTopColor: '#7f1d1d',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+    },
+    sendErrorText: {
+        color: '#fca5a5',
         fontSize: 12,
     },
     inputContainer: {
