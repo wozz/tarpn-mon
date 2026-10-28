@@ -29,6 +29,16 @@ struct Args {
     /// Log level (trace, debug, info, warn, error)
     #[arg(short, long, default_value = "info")]
     log_level: String,
+
+    /// Load and validate the configuration, print what the client API would
+    /// do, and exit without starting anything.
+    ///
+    /// Lets tooling check a config before restarting the service on it. It
+    /// also doubles as a capability probe: a build without client API tokens
+    /// does not know this flag and exits with a usage error, which is the
+    /// signal that it must not be given an exposed bind.
+    #[arg(long)]
+    check_config: bool,
 }
 
 #[tokio::main]
@@ -72,6 +82,21 @@ linbpq = "127.0.0.1:63119" # Connect to LinBPQ NETROMPORT
             return Err(e.into());
         }
     };
+
+    if args.check_config {
+        if let Some(client) = &config.client {
+            let auth = if client.resolved_token()?.is_some() {
+                "token required from other hosts"
+            } else {
+                "no token; loopback only"
+            };
+            println!("client API: {}:{} ({})", client.bind, client.port, auth);
+        } else {
+            println!("client API: disabled");
+        }
+        println!("configuration ok");
+        return Ok(());
+    }
 
     // Validate config
     if !config.is_netrom_mode() {

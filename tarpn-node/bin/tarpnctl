@@ -48,6 +48,16 @@ Updating
                          module, regenerate bpq32.cfg, restart what is running
   update <module>...     refresh just these modules (no config regeneration)
 
+Chat
+  enable-external-chat-api [--rotate]
+                         let clients on other hosts (a bot, a remote app)
+                         reach tarpn-chat's client API: binds it past loopback
+                         and generates a token they must present. Local
+                         clients such as tarpn-mon need no change. Re-run to
+                         print the token again; --rotate replaces it
+  disable-external-chat-api
+                         put the client API back on loopback only
+
 Modules
   list                   list available and installed modules
   install <module>...    install and enable a module
@@ -683,6 +693,254 @@ cmd_import() {
 }
 
 # ---------------------------------------------------------------------------
+# External chat API
+#
+# tarpn-chat's client API is loopback-only by default. Opening it to other
+# hosts needs two things to change together - the bind address and a token -
+# and getting them out of step is the dangerous direction: a build without
+# token support, or a token that did not reach the process, would serve an
+# exposed port that anyone can use to join chat under any callsign and
+# transmit from this node. So this does both, checks the result with the
+# binary itself before restarting, and puts everything back if it fails.
+#
+# The token lives in a drop-in of its own rather than override.conf, so
+# `systemctl edit tarpn-chat` stays the operator's and neither clobbers the
+# other. Drop-ins survive `tarpnctl update`, which only rewrites the unit file
+# itself, and tarpn-chat.toml edits survive too: its configure hook only ever
+# touches the call and alias lines.
+# ---------------------------------------------------------------------------
+
+CHAT_API_DROPIN_DIR="${TARPN_UNIT_DIR}/tarpn-chat.service.d"
+CHAT_API_DROPIN="${CHAT_API_DROPIN_DIR}/external-api.conf"
+CHAT_API_TOKEN_VAR="TARPN_CHAT_CLIENT_TOKEN"
+
+chat_bin()  { printf '%s/modules/tarpn-chat/bin/tarpn-chat' "$TARPN_PREFIX"; }
+chat_conf() { printf '%s/tarpn-chat.toml' "$TARPN_ETC"; }
+
+# A value from the [client] section of tarpn-chat.toml, unquoted.
+chat_client_get() {
+    awk -v key="$1" '
+        /^\[/ { in_client = ($0 ~ /^\[client\][[:space:]]*$/); next }
+        in_client && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*(#.*)?$/, "")
+            gsub(/"/, ""); print; exit
+        }' "$(chat_conf)"
+}
+
+# Rewrite [client] so bind and token_env are what we say, leaving every other
+# line - and every other section - exactly as the operator had it. Appends a
+# [client] section if there is none. token_env is set only when $2 is given.
+chat_client_set() {
+    local bind="$1" token_env="${2-}" conf tmp
+    conf="$(chat_conf)"
+    tmp="$(mktemp "${conf}.XXXXXX")"
+    awk -v bind="$bind" -v tenv="$token_env" '
+        # Blank lines inside [client] are held back, so keys added at the end
+        # of the section sit with it rather than after the gap before the next.
+        function flush() { printf "%s", held; held = "" }
+        function finish() {
+            if (in_client) {
+                if (!did_bind) print "bind = \"" bind "\""
+                if (tenv != "") print "token_env = \"" tenv "\""
+                in_client = 0
+            }
+            flush()
+        }
+        /^\[/ {
+            finish()
+            if ($0 ~ /^\[client\][[:space:]]*$/) { in_client = 1; seen = 1; did_bind = 0 }
+            print; next
+        }
+        in_client && /^[[:space:]]*bind[[:space:]]*=/ {
+            print "bind = \"" bind "\""; did_bind = 1; next
+        }
+        # Dropped and re-added in finish(), so a re-run never duplicates it
+        # and disabling removes it.
+        in_client && /^[[:space:]]*token_env[[:space:]]*=/ { next }
+        in_client && /^[[:space:]]*$/ { held = held $0 "\n"; next }
+        { flush(); print }
+        END {
+            finish()
+            if (!seen) {
+                print ""
+                print "[client]"
+                print "port = 8513"
+                print "bind = \"" bind "\""
+                if (tenv != "") print "token_env = \"" tenv "\""
+            }
+        }' "$conf" > "$tmp"
+
+    local user group
+    user="$(resolve_tarpn_user)"
+    group="$(id -gn "$user" 2>/dev/null || echo "$user")"
+    chown "$user:$group" "$tmp" 2>/dev/null || true
+    chmod 0644 "$tmp"
+    mv "$tmp" "$conf"
+}
+
+chat_api_token_from_dropin() {
+    [ -f "$CHAT_API_DROPIN" ] || return 0
+    sed -n "s/^Environment=${CHAT_API_TOKEN_VAR}=//p" "$CHAT_API_DROPIN" | head -1
+}
+
+# 32 random bytes, URL-safe so it can be pasted into a header, an env file or
+# a URL without quoting, and free of '%', which systemd would read as a
+# specifier in the drop-in.
+chat_api_new_token() {
+    head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n'
+}
+
+cmd_enable_chat_api() {
+    need_root
+    local rotate=false arg
+    for arg in "$@"; do
+        case "$arg" in
+            --rotate) rotate=true ;;
+            *) die "usage: tarpnctl enable-external-chat-api [--rotate]" ;;
+        esac
+    done
+
+    module_is_installed tarpn-chat || die "the tarpn-chat module is not installed"
+    local bin conf
+    bin="$(chat_bin)"; conf="$(chat_conf)"
+    [ -x "$bin" ]  || die "tarpn-chat binary not found at ${bin}"
+    [ -f "$conf" ] || die "${conf} does not exist; run 'sudo tarpnctl apply' first"
+
+    # Refuse on a build that cannot enforce a token. It would accept the
+    # config, ignore token_env, and serve the exposed port to anyone.
+    local probe
+    if ! probe="$("$bin" --check-config --config "$conf" 2>&1)"; then
+        if printf '%s' "$probe" | grep -qi "unexpected argument\|unrecognized\|unknown"; then
+            log_err "the installed tarpn-chat does not support client API tokens"
+            log_dim "update it first: sudo tarpnctl update tarpn-chat"
+            log_dim "opening the API on this build would leave it with no authentication"
+        else
+            log_err "the current tarpn-chat config does not validate:"
+            printf '%s\n' "$probe" | sed 's/^/    /' >&2
+        fi
+        exit 1
+    fi
+
+    local token
+    token="$(chat_api_token_from_dropin)"
+    if [ -n "$token" ] && [ "$rotate" != true ]; then
+        log_dim "keeping the existing token (pass --rotate to replace it)"
+    else
+        token="$(chat_api_new_token)"
+        [ -n "$token" ] || die "could not generate a token"
+    fi
+
+    local port
+    port="$(chat_client_get port)"; port="${port:-8513}"
+
+    if [ "$TARPN_DRY_RUN" = true ]; then
+        log_dim "would write ${CHAT_API_DROPIN} with a new token"
+        log_dim "would set bind = \"0.0.0.0\" and token_env = \"${CHAT_API_TOKEN_VAR}\" in ${conf}"
+        log_dim "would restart tarpn-chat.service if running"
+        return 0
+    fi
+
+    # Keep the old state, so a failure below leaves the node as it was.
+    local conf_backup dropin_backup=""
+    conf_backup="$(mktemp)"; cp -p "$conf" "$conf_backup"
+    if [ -f "$CHAT_API_DROPIN" ]; then
+        dropin_backup="$(mktemp)"; cp -p "$CHAT_API_DROPIN" "$dropin_backup"
+    fi
+    rollback() {
+        log_warn "rolling back"
+        cp -p "$conf_backup" "$conf"
+        if [ -n "$dropin_backup" ]; then cp -p "$dropin_backup" "$CHAT_API_DROPIN"
+        else rm -f "$CHAT_API_DROPIN"; fi
+        systemd_reload
+    }
+
+    log_step "Writing ${CHAT_API_DROPIN}"
+    install -d -m 0755 "$CHAT_API_DROPIN_DIR"
+    # 0600: systemd reads drop-ins as root, and nothing else needs the token.
+    ( umask 077
+      cat > "$CHAT_API_DROPIN" <<EOF
+# Written by 'tarpnctl enable-external-chat-api'. Holds the token clients on
+# other hosts must present to tarpn-chat's client API. Remove with
+# 'tarpnctl disable-external-chat-api', or replace with --rotate.
+[Service]
+Environment=${CHAT_API_TOKEN_VAR}=${token}
+EOF
+    )
+    chmod 0600 "$CHAT_API_DROPIN"
+
+    log_step "Opening the client API in ${conf}"
+    chat_client_set "0.0.0.0" "$CHAT_API_TOKEN_VAR"
+
+    # Validate exactly what the service will run with, before restarting it.
+    if ! probe="$(env "${CHAT_API_TOKEN_VAR}=${token}" "$bin" --check-config --config "$conf" 2>&1)" \
+       || ! printf '%s' "$probe" | grep -q "token required"; then
+        log_err "the new configuration did not validate:"
+        printf '%s\n' "$probe" | sed 's/^/    /' >&2
+        rollback; exit 1
+    fi
+    rm -f "$conf_backup" "${dropin_backup:-}"
+
+    systemd_reload
+    if unit_is_active tarpn-chat.service; then
+        local since
+        since="$(date '+%Y-%m-%d %H:%M:%S')"
+        unit_restart_if_active tarpn-chat.service
+        sleep 2
+        if journalctl -u tarpn-chat --since "$since" --no-pager 2>/dev/null \
+               | grep -q "Client API listening.*token required"; then
+            log_info "tarpn-chat restarted; client API open on port ${port} with a token"
+        else
+            log_warn "tarpn-chat restarted but did not report a token-protected listener yet"
+            log_dim "check: journalctl -u tarpn-chat | grep 'Client API listening'"
+        fi
+    else
+        log_warn "tarpn-chat is not running; it will use this when started"
+    fi
+
+    local addrs
+    addrs="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^$' | grep -v ':' | head -3 | tr '\n' ' ')"
+    cat <<EOF
+
+Clients on other hosts must send:  Authorization: Bearer <token>
+Local clients (tarpn-mon) need nothing.
+
+  token:    ${token}
+  address:  $(hostname):${port}${addrs:+   (or ${addrs% })}
+
+For the chat bot, in /etc/tarpn-chatbot/tarpn-chatbot.env:
+
+  TARPN_CHAT_ADDR=$(hostname):${port}
+  ${CHAT_API_TOKEN_VAR}=${token}
+
+Treat the token like a password: anything holding it can join chat from this
+node under any callsign. Print it again by re-running this command; replace it
+with --rotate, which disconnects clients still using the old one.
+EOF
+}
+
+cmd_disable_chat_api() {
+    need_root
+    module_is_installed tarpn-chat || die "the tarpn-chat module is not installed"
+    local conf
+    conf="$(chat_conf)"
+
+    if [ "$TARPN_DRY_RUN" = true ]; then
+        log_dim "would set bind = \"127.0.0.1\" and remove token_env in ${conf}"
+        log_dim "would remove ${CHAT_API_DROPIN} and restart tarpn-chat.service if running"
+        return 0
+    fi
+
+    # Loopback first, then the token: in that order there is never a moment
+    # with the port exposed and no token behind it.
+    [ -f "$conf" ] && chat_client_set "127.0.0.1"
+    rm -f "$CHAT_API_DROPIN"
+    rmdir "$CHAT_API_DROPIN_DIR" 2>/dev/null || true
+    systemd_reload
+    unit_restart_if_active tarpn-chat.service
+    log_info "client API back on loopback only; token removed"
+}
+
+# ---------------------------------------------------------------------------
 
 case "$CMD" in
     status)          cmd_status ;;
@@ -701,6 +959,8 @@ case "$CMD" in
     remove)          cmd_remove "$@" ;;
     update)          cmd_update "$@" ;;
     import-node-ini) cmd_import "$@" ;;
+    enable-external-chat-api)  cmd_enable_chat_api "$@" ;;
+    disable-external-chat-api) cmd_disable_chat_api "$@" ;;
     help)            usage ;;
     *)               log_err "unknown command: ${CMD}"; usage; exit 1 ;;
 esac
