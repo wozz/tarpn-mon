@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 use std::path::Path;
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 /// Main server configuration
 #[derive(Debug, Clone, Deserialize)]
@@ -153,6 +153,89 @@ pub struct ClientApiConfig {
     /// Maximum number of local clients (default 10)
     #[serde(default = "default_max_clients")]
     pub max_clients: usize,
+
+    /// Shared secret clients must present as `Authorization: Bearer <token>`.
+    ///
+    /// Asked only of clients on other hosts; loopback peers are exempt, so
+    /// tarpn-mon and anything else local needs no configuration when the API
+    /// is opened up.
+    ///
+    /// Optional so an existing loopback-only install keeps working untouched,
+    /// but required as soon as `bind` reaches past loopback - see
+    /// [`ClientApiConfig::validate`]. Without it anything that can open the
+    /// port can join chat under any callsign, and the licensee answers for
+    /// what the station transmits.
+    ///
+    /// Prefer `token_env` to keep the secret out of the config file.
+    #[serde(default)]
+    pub token: Option<String>,
+
+    /// Name of an environment variable to read the token from.
+    ///
+    /// Takes precedence over `token`. Exists because the config file is the
+    /// sort of thing that gets copied between nodes, pasted into a mail or
+    /// committed by accident, and a secret in it travels with it.
+    #[serde(default)]
+    pub token_env: Option<String>,
+}
+
+impl ClientApiConfig {
+    /// The effective token, resolved from the environment if `token_env` names
+    /// a variable.
+    pub fn resolved_token(&self) -> Result<Option<String>> {
+        if let Some(var) = &self.token_env {
+            return match std::env::var(var) {
+                Ok(v) if !v.trim().is_empty() => Ok(Some(v.trim().to_string())),
+                Ok(_) => bail!("client.token_env names {var}, which is set but empty"),
+                Err(_) => bail!("client.token_env names {var}, which is not set"),
+            };
+        }
+        Ok(self
+            .token
+            .as_ref()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty()))
+    }
+
+    /// Reject a configuration that exposes the API without a token.
+    ///
+    /// This refuses to start rather than warning. The API cannot say who is
+    /// talking to it, so an unauthenticated port reachable from off-host is a
+    /// transmitter anyone on the network can operate under any callsign. A
+    /// warning in a log nobody reads is not a control.
+    pub fn validate(&self) -> Result<()> {
+        let token = self.resolved_token()?;
+        if token.is_none() && !self.binds_loopback_only() {
+            bail!(
+                "client.bind is {}, which is reachable from other hosts, but no \
+                 client.token or client.token_env is set. The client API has no \
+                 other authentication: anything that can reach port {} could join \
+                 chat under any callsign. Set a token, or bind to 127.0.0.1.",
+                self.bind,
+                self.port
+            );
+        }
+        if let Some(t) = &token {
+            if t.len() < 16 {
+                bail!(
+                    "client token is {} characters; use at least 16. Generate one \
+                     with `openssl rand -base64 32`.",
+                    t.len()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `bind` can only be reached from this host.
+    fn binds_loopback_only(&self) -> bool {
+        match self.bind.parse::<std::net::IpAddr>() {
+            Ok(ip) => ip.is_loopback(),
+            // Not an address we can reason about - treat as exposed, since
+            // guessing the safe answer wrong here is the expensive direction.
+            Err(_) => false,
+        }
+    }
 }
 
 fn default_max_clients() -> usize {
@@ -186,7 +269,16 @@ impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Check the configuration is safe to run, before anything binds a port.
+    pub fn validate(&self) -> Result<()> {
+        if let Some(client) = &self.client {
+            client.validate()?;
+        }
+        Ok(())
     }
 
     /// Check if NetROM mode is configured
@@ -298,4 +390,85 @@ alias = "T1CHAT"
     assert_eq!(cfg.peers[0].call, "N2IRZ-9");
     assert!(cfg.peers[0].alias.is_none(), "alias is optional for a derived peer");
     assert_eq!(cfg.known_nodes.len(), 1);
+}
+
+#[cfg(test)]
+mod client_auth_tests {
+    use super::*;
+
+    fn cfg(bind: &str, token: Option<&str>) -> ClientApiConfig {
+        ClientApiConfig {
+            port: 8513,
+            bind: bind.to_string(),
+            max_clients: 10,
+            token: token.map(str::to_string),
+            token_env: None,
+        }
+    }
+
+    const GOOD: &str = "0123456789abcdef";
+
+    /// The point of the whole exercise: a bind that reaches past this host
+    /// must not come up without a token. It refuses to start rather than
+    /// warning, because the thing on the other side of that port is a
+    /// transmitter operating under someone's licence.
+    #[test]
+    fn exposed_bind_without_token_is_refused() {
+        for bind in ["0.0.0.0", "192.168.1.10", "::", "100.64.0.1"] {
+            assert!(
+                cfg(bind, None).validate().is_err(),
+                "bind {bind} was accepted with no token"
+            );
+        }
+    }
+
+    #[test]
+    fn exposed_bind_with_token_is_allowed() {
+        for bind in ["0.0.0.0", "192.168.1.10", "::"] {
+            assert!(
+                cfg(bind, Some(GOOD)).validate().is_ok(),
+                "bind {bind} rejected despite a token"
+            );
+        }
+    }
+
+    /// An existing loopback-only install must keep working untouched.
+    #[test]
+    fn loopback_without_token_is_allowed() {
+        for bind in ["127.0.0.1", "::1", "127.0.0.53"] {
+            assert!(
+                cfg(bind, None).validate().is_ok(),
+                "loopback bind {bind} was refused"
+            );
+        }
+    }
+
+    /// An unparseable bind is treated as exposed. Guessing wrong in the other
+    /// direction opens the port.
+    #[test]
+    fn unparseable_bind_is_treated_as_exposed() {
+        assert!(cfg("localhost", None).validate().is_err());
+        assert!(cfg("", None).validate().is_err());
+    }
+
+    #[test]
+    fn short_or_blank_tokens_are_refused() {
+        assert!(cfg("0.0.0.0", Some("short")).validate().is_err());
+        // Whitespace-only is not a token, so this is the exposed-and-
+        // unauthenticated case rather than a length complaint.
+        assert!(cfg("0.0.0.0", Some("   ")).validate().is_err());
+    }
+
+    #[test]
+    fn token_env_overrides_and_must_be_set() {
+        let mut c = cfg("0.0.0.0", Some("ignored-because-env-wins"));
+        c.token_env = Some("TARPN_TEST_TOKEN_UNSET".to_string());
+        assert!(c.validate().is_err(), "missing env var was not reported");
+
+        unsafe { std::env::set_var("TARPN_TEST_TOKEN_SET", GOOD) };
+        c.token_env = Some("TARPN_TEST_TOKEN_SET".to_string());
+        assert_eq!(c.resolved_token().unwrap().as_deref(), Some(GOOD));
+        assert!(c.validate().is_ok());
+        unsafe { std::env::remove_var("TARPN_TEST_TOKEN_SET") };
+    }
 }

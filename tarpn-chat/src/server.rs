@@ -89,6 +89,10 @@ impl ChatServer {
                 .parse()
                 .expect("Invalid client API bind address");
 
+            // Already validated when the config loaded, which is what
+            // guarantees a non-loopback bind has a token.
+            let client_token = client_config.resolved_token()?;
+
             let client_tx_clone = client_tx.clone();
             let client_senders_clone = client_senders.clone();
             let local_clients_clone = local_clients.clone();
@@ -96,6 +100,7 @@ impl ChatServer {
             tokio::spawn(async move {
                 if let Err(e) = run_client_api_server(
                     listen_addr,
+                    client_token,
                     client_tx_clone,
                     client_senders_clone,
                     local_clients_clone,

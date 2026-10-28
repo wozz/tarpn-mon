@@ -24,8 +24,31 @@ linbpq = "127.0.0.1:63119"
 # Port for WebSocket client connections
 port = 8513
 
-# Bind address for client API
+# Bind address for client API.
+#
+# 127.0.0.1 keeps it on this host. Anything wider needs a token below: the
+# server refuses to start on an exposed bind without one, because the API has
+# no other authentication and its join command accepts whatever callsign it is
+# given - anything that could reach the port could transmit from this node
+# under any call.
 bind = "127.0.0.1"
+
+# Shared secret clients must send as `Authorization: Bearer <token>`.
+#
+# Required when bind is not loopback, optional otherwise. Only clients on other
+# hosts are asked for it - local ones such as tarpn-mon connect without one, so
+# opening the API up needs no change to them. At least 16 characters; generate
+# one with:
+#
+#   openssl rand -base64 32
+#
+# token = "..."
+
+# Or name an environment variable to read it from, which keeps the secret out
+# of this file - config files get copied between nodes and pasted into mails.
+# Takes precedence over token.
+#
+# token_env = "TARPN_CHAT_CLIENT_TOKEN"
 
 # Maximum number of local clients
 max_clients = 10
