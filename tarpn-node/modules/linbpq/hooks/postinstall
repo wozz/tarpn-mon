@@ -19,8 +19,7 @@ else
 fi
 
 # LinBPQ itself is third-party and is not redistributed here, so it is fetched
-# from G8BPQ's own download area at install time - the same place the stock
-# TARPN installer gets it from. Set LINBPQ_SOURCE to a path or URL to override,
+# from G8BPQ's GitHub releases at install time (see LINBPQ_UPSTREAM_BASE). Set LINBPQ_SOURCE to a path or URL to override,
 # or to "none" to install it yourself.
 binary="${bpq_home}/linbpq"
 host_arch="$(detect_arch)"

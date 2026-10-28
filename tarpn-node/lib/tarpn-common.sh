@@ -288,7 +288,12 @@ stage_tree() {
 # whatever it fetches, so a wrong entry here fails loudly rather than leaving
 # an unrunnable binary in place.
 
-LINBPQ_UPSTREAM_BASE="${LINBPQ_UPSTREAM_BASE:-https://www.cantab.net/users/john.wiseman/Downloads/Beta}"
+# G8BPQ publishes LinBPQ as GitHub release assets under the same file names his
+# own site used, which began refusing downloads (403) in October 2026. The
+# latest/download path redirects to the newest full release, so this tracks
+# upstream the way the old Beta folder did. Pin a release instead with
+#   LINBPQ_UPSTREAM_BASE=https://github.com/g8bpq/linbpq/releases/download/26.1
+LINBPQ_UPSTREAM_BASE="${LINBPQ_UPSTREAM_BASE:-https://github.com/g8bpq/linbpq/releases/latest/download}"
 
 # elf_arch_of <file> -> arm32 | arm64 | amd64 | x86 | unknown
 #
