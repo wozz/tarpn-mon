@@ -1,7 +1,7 @@
 [Unit]
 Description=LinBPQ packet node (AX.25 / NetROM engine)
 Documentation=https://github.com/wozz/tarpn-mon
-Documentation=https://www.cantab.net/users/john.wiseman/Documents/
+Documentation=https://g8bpq.compute.oarc.uk/
 
 # Grouped under tarpn.target so `systemctl stop tarpn.target` takes the whole
 # node down. There is deliberately no dependency in the other direction:

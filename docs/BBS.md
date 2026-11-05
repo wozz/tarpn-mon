@@ -471,8 +471,8 @@ Features:
 
 ## References
 
-- [BPQ Mail Server User Commands](https://www.cantab.net/users/john.wiseman/Documents/BBSUserCommands.html)
-- [BPQ Mail Server Configuration](https://www.cantab.net/users/john.wiseman/Documents/MailServerConfiguration.html)
+- [BPQ Mail Server User Commands](https://g8bpq.compute.oarc.uk/BBSUserCommands.html)
+- [BPQ Mail Server Configuration](https://g8bpq.compute.oarc.uk/MailServerConfiguration.html)
 - [LinBPQ MailCommands.c](https://github.com/g8bpq/linbpq/blob/master/MailCommands.c)
 - [LinBPQ BBSUtilities.c](https://github.com/g8bpq/linbpq/blob/master/BBSUtilities.c)
 - [FBB Protocol](https://www.f6fbb.org/protocole.html)

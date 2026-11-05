@@ -488,8 +488,8 @@ Current implementation (chat) uses separate connection. This is simpler but uses
 
 ## References
 
-- [BPQ32 Node Commands](https://www.cantab.net/users/john.wiseman/Documents/NodeCommands.html)
-- [BPQ Host Mode Emulator](https://www.cantab.net/users/john.wiseman/Documents/BPQ%20Host%20Mode%20Emulator.htm)
-- [BPQ Configuration File](https://www.cantab.net/users/john.wiseman/Documents/BPQCFGFile.html)
+- [BPQ32 Node Commands](https://g8bpq.compute.oarc.uk/NodeCommands.html)
+- [BPQ Host Mode Emulator](https://g8bpq.compute.oarc.uk/BPQ%20Host%20Mode%20Emulator.htm)
+- [BPQ Configuration File](https://g8bpq.compute.oarc.uk/BPQCFGFile.html)
 - [TARPN G8BPQ TNC2 Emulation](https://tarpn.net/t/builder/g8bpq/g8bpq_tnc2_emulation.html)
 - [LinBPQ Cmd.c](https://github.com/g8bpq/linbpq/blob/master/Cmd.c)

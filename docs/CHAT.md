@@ -651,5 +651,5 @@ ConSemaphore = CreateSemaphore(...);
 ## References
 
 - [LinBPQ Source Code](https://github.com/g8bpq/linbpq)
-- [BPQ32 Documentation](https://www.cantab.net/users/john.wiseman/Documents/)
+- [BPQ32 Documentation](https://g8bpq.compute.oarc.uk/BPQ32%20Documents.htm)
 - [AX.25 Protocol](https://www.tapr.org/pdf/AX25.2.2.pdf)
