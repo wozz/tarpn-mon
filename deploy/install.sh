@@ -1056,7 +1056,7 @@ upgrade_linbpq() {
     fi
 
     local LINBPQ_BINARY="${BPQ_CONFIG_DIR}/linbpq"
-    local LINBPQ_URL="https://github.com/g8bpq/linbpq/releases/latest/download/pilinbpq"
+    local LINBPQ_URL="https://g8bpq.compute.oarc.uk/Downloads/Beta/pilinbpq"
 
     # Check if LinBPQ exists
     if [ ! -f "$LINBPQ_BINARY" ]; then

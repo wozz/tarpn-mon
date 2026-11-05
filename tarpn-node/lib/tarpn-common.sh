@@ -288,12 +288,12 @@ stage_tree() {
 # whatever it fetches, so a wrong entry here fails loudly rather than leaving
 # an unrunnable binary in place.
 
-# G8BPQ publishes LinBPQ as GitHub release assets under the same file names his
-# own site used, which began refusing downloads (403) in October 2026. The
-# latest/download path redirects to the newest full release, so this tracks
-# upstream the way the old Beta folder did. Pin a release instead with
+# G8BPQ's downloads moved from www.cantab.net, which began refusing them (403)
+# in October 2026, to the OARC host below, with the same layout and file names.
+# Beta is the folder TARPN has always tracked. The same builds are published as
+# GitHub release assets, which can be pinned to a release instead:
 #   LINBPQ_UPSTREAM_BASE=https://github.com/g8bpq/linbpq/releases/download/26.1
-LINBPQ_UPSTREAM_BASE="${LINBPQ_UPSTREAM_BASE:-https://github.com/g8bpq/linbpq/releases/latest/download}"
+LINBPQ_UPSTREAM_BASE="${LINBPQ_UPSTREAM_BASE:-https://g8bpq.compute.oarc.uk/Downloads/Beta}"
 
 # elf_arch_of <file> -> arm32 | arm64 | amd64 | x86 | unknown
 #

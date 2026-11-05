@@ -27,12 +27,12 @@ WORKDIR /opt/linbpq
 # Download LinBPQ binary based on architecture
 # x86_64: linbpq (64-bit Intel/AMD)
 # arm: pilinbpq (32-bit ARM for Raspberry Pi)
-# Check https://www.cantab.net/users/john.wiseman/Downloads/Beta/ for latest
+# Check https://g8bpq.compute.oarc.uk/Downloads/Beta/ for latest
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -q https://www.cantab.net/users/john.wiseman/Downloads/Beta/linbpq && \
+        wget -q https://g8bpq.compute.oarc.uk/Downloads/Beta/linbpq && \
         chmod +x linbpq; \
     elif [ "$TARGETARCH" = "arm" ] || [ "$TARGETARCH" = "arm64" ]; then \
-        wget -q https://www.cantab.net/users/john.wiseman/Downloads/Beta/pilinbpq && \
+        wget -q https://g8bpq.compute.oarc.uk/Downloads/Beta/pilinbpq && \
         chmod +x pilinbpq && \
         ln -s pilinbpq linbpq; \
     else \
