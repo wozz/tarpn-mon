@@ -602,9 +602,15 @@ type websocketConn struct {
 	wc *websocket.Conn
 }
 
+// wsWriteTimeout bounds a single write. A client that stops reading (a
+// sleeping browser tab, a dropped Wi-Fi link) otherwise blocks the write
+// forever once its TCP window fills, and with it every broadcast.
+var wsWriteTimeout = 10 * time.Second
+
 func (w *websocketConn) write(message string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.wc.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 	return w.wc.WriteMessage(websocket.TextMessage, []byte(message))
 }
 
@@ -619,13 +625,23 @@ var (
 	clientsMu sync.RWMutex
 )
 
+// snapshotClients copies the client set so writes happen without clientsMu
+// held. Holding it across network I/O lets one slow client stall connects
+// and disconnects as well as every other broadcast.
+func snapshotClients() []*websocketConn {
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+	out := make([]*websocketConn, 0, len(clients))
+	for client := range clients {
+		out = append(out, client)
+	}
+	return out
+}
+
 func broadcast(seq int64, message string) {
 	dataBuffer.add(seq, message)
 
-	clientsMu.RLock()
-	defer clientsMu.RUnlock()
-
-	for client := range clients {
+	for _, client := range snapshotClients() {
 		err := client.write(message)
 		if err != nil {
 			wsLog.Debugw("Websocket write failed, closing connection", "error", err)
@@ -640,10 +656,7 @@ func broadcast(seq int64, message string) {
 // adding it to the circular buffer. Used for periodic snapshots like link stats
 // that shouldn't be mixed into the monitor log timeline.
 func broadcastDirect(message string) {
-	clientsMu.RLock()
-	defer clientsMu.RUnlock()
-
-	for client := range clients {
+	for _, client := range snapshotClients() {
 		err := client.write(message)
 		if err != nil {
 			go func(c *websocketConn) {

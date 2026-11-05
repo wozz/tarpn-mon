@@ -59,10 +59,7 @@ func BroadcastFeatureStatus(status FeatureStatus) {
 	}
 
 	// Broadcast to all connected clients
-	clientsMu.RLock()
-	defer clientsMu.RUnlock()
-
-	for client := range clients {
+	for _, client := range snapshotClients() {
 		if err := client.write(string(data)); err != nil {
 			wsLog.Debugw("Feature status broadcast failed", "error", err, "feature", status.Feature)
 			go client.kill()
